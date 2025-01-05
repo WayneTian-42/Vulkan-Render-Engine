@@ -5,6 +5,14 @@
 
 #include <vk_types.h>
 
+struct FrameData
+{
+	VkCommandPool _commandPool;
+	VkCommandBuffer _commandBuffer;
+};
+
+constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
+
 class VulkanEngine 
 {
 public:
@@ -21,6 +29,15 @@ public:
 	 * @return VulkanEngine& VulkanEngine对象
 	 */
 	static VulkanEngine& Get();
+
+	/**
+	 * @brief 获取当前帧数据
+	 * @return FrameData& 当前帧数据
+	 */
+	FrameData& get_current_frame()
+	{
+		return _frames[_currentFrame % MAX_FRAMES_IN_FLIGHT];
+	}
 
 	//initializes everything in the engine
 	void init();
@@ -66,16 +83,36 @@ private:
 	void destroy_swapchain();
 
 private:
+	// vulkan 对象
 	VkInstance _instance;
+	// 调试消息	
 	VkDebugUtilsMessengerEXT _debugMessenger;
+	// 物理设备
 	VkPhysicalDevice _chosenGPU;
+	// 逻辑设备
 	VkDevice _device;
+	// 表面，用于展示渲染结果
 	VkSurfaceKHR _surface;
 
+	// 交换链，用于管理渲染图像
 	VkSwapchainKHR _swapchain;
+	// 交换链图像格式
 	VkFormat _swapchainImageFormat;
-
+	// 交换链图像
 	std::vector<VkImage> _swapchainImages;
+	// 交换链图像视图
 	std::vector<VkImageView> _swapchainImageViews;
+
+	// 交换链图像大小
 	VkExtent2D _swapchainExtent;
+
+	// 帧数据
+	std::array<FrameData, MAX_FRAMES_IN_FLIGHT> _frames;
+	// 当前帧
+	uint32_t _currentFrame = 0;
+
+	// 图形队列
+	VkQueue _graphicsQueue;
+	// 图形队列族
+	uint32_t _graphicsQueueFamily;
 };

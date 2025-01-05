@@ -107,6 +107,11 @@ void VulkanEngine::init_vulkan()
 
     // 赋值指定逻辑设备
     _device = vkbDevice.device;
+
+    // 获取图形队列
+    _graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
+    // 获取队列索引
+    _graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
 }
 
 void VulkanEngine::init_swapchain()
@@ -116,7 +121,28 @@ void VulkanEngine::init_swapchain()
 
 void VulkanEngine::init_commands()
 {
+    // 创建command pool
+    VkCommandPoolCreateInfo commandPoolInfo = {
+        .sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
+        .pNext = nullptr,
+        .flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
+        .queueFamilyIndex = _graphicsQueueFamily,
+    };
 
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool));
+
+        // 分配command buffer
+        VkCommandBufferAllocateInfo commandBufferInfo = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO,
+            .pNext = nullptr,
+            .commandPool = _frames[i]._commandPool,
+            .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY,
+            .commandBufferCount = 1,
+        };
+
+        VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferInfo, &_frames[i]._commandBuffer));
+    }
 }
 
 void VulkanEngine::init_sync_structures()
@@ -164,6 +190,14 @@ void VulkanEngine::cleanup()
 {
     if (_isInitialized) {
         // 按照创建的反序销毁并释放资源
+
+        // GPU等待
+        vkDeviceWaitIdle(_device);
+
+        // 销毁command pool
+        for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+        }
 
         destroy_swapchain();
 
