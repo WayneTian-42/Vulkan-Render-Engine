@@ -1,5 +1,6 @@
 ﻿//> includes
 #include "vk_engine.h"
+#include "vk_images.h"
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -122,7 +123,7 @@ void VulkanEngine::init_swapchain()
 void VulkanEngine::init_commands()
 {
     // 创建command pool
-    VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily);
+    VkCommandPoolCreateInfo commandPoolInfo = vkinit::command_pool_create_info(_graphicsQueueFamily, VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT);
 
     for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
         VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_frames[i]._commandPool));
@@ -136,7 +137,15 @@ void VulkanEngine::init_commands()
 
 void VulkanEngine::init_sync_structures()
 {
+    // 创建栅栏和信号量
+    VkFenceCreateInfo fenceCreateInfo = vkinit::fence_create_info(VK_FENCE_CREATE_SIGNALED_BIT);
+    VkSemaphoreCreateInfo semaphoreCreateInfo = vkinit::semaphore_create_info();
 
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_frames[i]._renderFence));
+        VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._swapchainSemaphore));
+        VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._renderSemaphore));
+    }
 }
 
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
@@ -154,7 +163,7 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
     // 创建交换链
     vkb::Swapchain vkbSwapchain = swapchain_builder
         .set_desired_format(surface_format)
-        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_KHR)
+        .set_desired_present_mode(VK_PRESENT_MODE_FIFO_RELAXED_KHR)
         .set_desired_extent(width, height)
         .add_image_usage_flags(VK_IMAGE_USAGE_TRANSFER_DST_BIT)
         .build()
@@ -185,7 +194,13 @@ void VulkanEngine::cleanup()
 
         // 销毁command pool
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            // 销毁command pool
             vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
+
+            // 销毁栅栏和信号量
+            vkDestroyFence(_device, _frames[i]._renderFence, nullptr);
+            vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
+            vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
         }
 
         destroy_swapchain();
@@ -207,6 +222,77 @@ void VulkanEngine::cleanup()
 void VulkanEngine::draw()
 {
     // nothing yet
+
+    // 等待栅栏发出信号
+    VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, VK_TRUE, static_cast<uint64_t>(1e9)));
+    // 重置栅栏
+    VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
+
+    // 获取交换链图像索引
+    uint32_t swapchainImageIndex;
+    VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, static_cast<uint64_t>(1e9), get_current_frame()._swapchainSemaphore, VK_NULL_HANDLE, &swapchainImageIndex));
+
+    // 获取command buffer
+    VkCommandBuffer cmd = get_current_frame()._commandBuffer;
+
+    // 重置command buffer
+    VK_CHECK(vkResetCommandBuffer(cmd, 0));
+
+    // 开始记录命令
+    VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+    VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+    // 将交换链图像从未定义状态转换为颜色附件优化状态
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+
+    VkClearColorValue clearValue{};
+    float flash = std::abs(std::sin(_frameNumber / 120.f));
+    clearValue =  { flash, flash, flash, 1.0f };
+
+    // 设置清除区域
+    VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // 清除图像
+    vkCmdClearColorImage(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+
+    // 将交换链图像从颜色附件优化状态转换为呈现源状态
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+
+    // 结束记录命令
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    // 提交命令
+    VkCommandBufferSubmitInfo cmdSubmitInfo = vkinit::command_buffer_submit_info(cmd);
+
+    // 等待交换链图像，stage为颜色附件输出阶段
+    VkSemaphoreSubmitInfo waitInfo = vkinit::semaphore_submit_info( VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT, get_current_frame()._swapchainSemaphore);
+
+    // 信号渲染完成，stage为所有图形阶段
+    VkSemaphoreSubmitInfo signalInfo = vkinit::semaphore_submit_info( VK_PIPELINE_STAGE_2_ALL_GRAPHICS_BIT, get_current_frame()._renderSemaphore);
+
+    // 创建提交信息
+    VkSubmitInfo2 submitInfo = vkinit::submit_info(&cmdSubmitInfo,  &signalInfo,  &waitInfo);
+
+    // 提交命令
+    VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo, get_current_frame()._renderFence));
+
+    VkPresentInfoKHR presentInfo{
+        .sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR,
+        .pNext = nullptr,
+    };
+
+    presentInfo.pSwapchains = &_swapchain;
+    presentInfo.swapchainCount = 1;
+
+    presentInfo.pWaitSemaphores = &get_current_frame()._renderSemaphore;
+    presentInfo.waitSemaphoreCount = 1;
+
+    presentInfo.pImageIndices = &swapchainImageIndex;
+
+    // 提交图像
+    VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+
+    ++_frameNumber;
 }
 
 void VulkanEngine::run()

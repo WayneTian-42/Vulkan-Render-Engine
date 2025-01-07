@@ -9,6 +9,11 @@ struct FrameData
 {
 	VkCommandPool _commandPool;
 	VkCommandBuffer _commandBuffer;
+	// 添加交换链信号量，当交换链图像可用时，交换链信号量会发出信号；
+	// 添加渲染信号量，当渲染完成时，渲染信号量会发出信号；
+	VkSemaphore _swapchainSemaphore, _renderSemaphore;
+	// 添加栅栏，当栅栏发出信号时，所有在栅栏上等待的命令缓冲区都会执行；
+	VkFence _renderFence;
 };
 
 constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
