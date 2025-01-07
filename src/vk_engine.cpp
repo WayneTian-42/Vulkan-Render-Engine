@@ -13,6 +13,9 @@
 
 #include <VkBootstrap.h>
 
+#define VMA_IMPLEMENTATION
+#include <vk_mem_alloc.h>
+
 // 全局变量，用于单例模式，不使用普通的单例模式是为了能够在创建或者销毁单例时显式地修改指针
 VulkanEngine* loadedEngine = nullptr;
 
@@ -113,11 +116,52 @@ void VulkanEngine::init_vulkan()
     _graphicsQueue = vkbDevice.get_queue(vkb::QueueType::graphics).value();
     // 获取队列索引
     _graphicsQueueFamily = vkbDevice.get_queue_index(vkb::QueueType::graphics).value();
+
+    // 创建内存分配器
+    VmaAllocatorCreateInfo allocatorInfo = {};
+    allocatorInfo.physicalDevice = _chosenGPU;
+    allocatorInfo.device = _device;
+    allocatorInfo.instance = _instance;
+    vmaCreateAllocator(&allocatorInfo, &_allocator);
+
+    // 添加内存分配器销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vmaDestroyAllocator(_allocator);
+    });
 }
 
 void VulkanEngine::init_swapchain()
 {
     create_swapchain(_windowExtent.width, _windowExtent.height);
+
+    // 创建图像
+    VkExtent3D imageExtent = {
+        .width = _windowExtent.width,
+        .height = _windowExtent.height,
+        .depth = 1,
+    };
+    VkFormat imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    VkImageUsageFlags drawImageUsages = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+                                    | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+
+    VkImageCreateInfo drawImageInfo = vkinit::image_create_info(imageFormat, drawImageUsages, imageExtent);
+
+    // 分配图像内存
+    VmaAllocationCreateInfo allocationInfo{};
+    allocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+    allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+
+    VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &allocationInfo, &_drawImage.image, &_drawImage.allocation, nullptr));
+
+    // 创建图像视图
+    VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_drawImage.imageView));
+
+    // 添加图像销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vkDestroyImageView(_device, _drawImage.imageView, nullptr);
+        vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+    });
 }
 
 void VulkanEngine::init_commands()
@@ -203,6 +247,9 @@ void VulkanEngine::cleanup()
             vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
         }
 
+        // 执行删除队列
+        _mainDeletionQueue.flush();
+
         destroy_swapchain();
 
         vkDestroySurfaceKHR(_instance, _surface, nullptr);
@@ -225,6 +272,10 @@ void VulkanEngine::draw()
 
     // 等待栅栏发出信号
     VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, VK_TRUE, static_cast<uint64_t>(1e9)));
+
+    // 执行删除队列
+    get_current_frame()._deletionQueue.flush();
+
     // 重置栅栏
     VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
 
@@ -238,25 +289,29 @@ void VulkanEngine::draw()
     // 重置command buffer
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
 
+    // 设置drawImage的extent
+    _drawImageExtent.width = _swapchainExtent.width;
+    _drawImageExtent.height = _swapchainExtent.height;
+
     // 开始记录命令
     VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
     // 将交换链图像从未定义状态转换为颜色附件优化状态
-    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
+    vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
-    VkClearColorValue clearValue{};
-    float flash = std::abs(std::sin(_frameNumber / 120.f));
-    clearValue =  { flash, flash, flash, 1.0f };
-
-    // 设置清除区域
-    VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
-
-    // 清除图像
-    vkCmdClearColorImage(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+    // 绘制背景
+    draw_background(cmd);
 
     // 将交换链图像从颜色附件优化状态转换为呈现源状态
-    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
+
+    // 复制图像到图像
+    vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawImageExtent, _swapchainExtent);
+
+    // 将交换链图像从颜色附件优化状态转换为呈现源状态
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     // 结束记录命令
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -289,10 +344,23 @@ void VulkanEngine::draw()
 
     presentInfo.pImageIndices = &swapchainImageIndex;
 
-    // 提交图像
     VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
 
     ++_frameNumber;
+}
+
+void VulkanEngine::draw_background(VkCommandBuffer cmd)
+{
+    // 绘制背景
+    VkClearColorValue clearValue{};
+    float flash = std::abs(std::sin(_frameNumber / 120.f));
+    clearValue =  { flash, flash, flash, 1.0f };
+
+    // 设置清除区域
+    VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+
+    // 清除图像
+    vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
 }
 
 void VulkanEngine::run()

@@ -5,6 +5,31 @@
 
 #include <vk_types.h>
 
+struct DeletionQueue
+{
+    std::vector<std::function<void()>> _deletionQueue;
+
+    /**
+     * @brief 添加一个函数到删除队列
+     * @param function 函数
+     */
+    void push_function(std::function<void()>&& function)
+    {
+        _deletionQueue.push_back(function);
+    }
+
+    /**
+     * @brief 执行删除队列中的所有函数
+     */
+    void flush()
+    {
+        for (auto it = _deletionQueue.rbegin(); it != _deletionQueue.rend(); ++it) {
+            (*it)();
+        }
+        _deletionQueue.clear();
+    }
+};
+
 struct FrameData
 {
 	VkCommandPool _commandPool;
@@ -14,6 +39,8 @@ struct FrameData
 	VkSemaphore _swapchainSemaphore, _renderSemaphore;
 	// 添加栅栏，当栅栏发出信号时，所有在栅栏上等待的命令缓冲区都会执行；
 	VkFence _renderFence;
+	// 添加删除队列，用于管理资源的生命周期
+	DeletionQueue _deletionQueue;
 };
 
 constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
@@ -87,6 +114,13 @@ private:
 	 */
 	void destroy_swapchain();
 
+
+	/**
+	 * @brief 绘制背景
+	 * @param cmd 命令缓冲区
+	 */
+	void draw_background(VkCommandBuffer cmd);
+
 private:
 	// vulkan 对象
 	VkInstance _instance;
@@ -120,4 +154,15 @@ private:
 	VkQueue _graphicsQueue;
 	// 图形队列族
 	uint32_t _graphicsQueueFamily;
+
+	// 内存分配器
+	VmaAllocator _allocator;
+
+	// 删除队列
+	DeletionQueue _mainDeletionQueue;
+
+	// 分配的图像
+	AllocatedImage _drawImage;
+	// 分配的图像大小
+	VkExtent2D _drawImageExtent;
 };
