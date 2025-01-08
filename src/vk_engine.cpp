@@ -1,6 +1,7 @@
 ﻿//> includes
 #include "vk_engine.h"
 #include "vk_images.h"
+#include "vk_pipelines.h"
 
 #include <SDL.h>
 #include <SDL_vulkan.h>
@@ -46,6 +47,10 @@ void VulkanEngine::init()
     init_commands();
 
     init_sync_structures();
+
+    init_descriptors();
+
+    init_pipelines();
 
     // everything went fine
     _isInitialized = true;
@@ -192,6 +197,55 @@ void VulkanEngine::init_sync_structures()
     }
 }
 
+void VulkanEngine::init_descriptors()
+{
+    // 初始化描述符池的不同类型所占比例
+    std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 },
+    };
+
+    // 创建全局描述符池
+    _globalDescriptorAllocator.init_pool(_device, 10, sizes);
+
+    // 创建描述符集布局，将其放在单独的作用域中，以便在创建描述符集后销毁
+    {
+        DescriptorLayoutBuilder builder;
+        builder.add_binding(0, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+        _drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
+    }
+
+    // 分配描述符集
+    _drawImageDescriptors = _globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
+
+    // 描述符关联的图像信息
+    VkDescriptorImageInfo imgInfo{};
+    imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+    imgInfo.imageView = _drawImage.imageView;
+
+    // 准备描述符写入操作
+    VkWriteDescriptorSet drawImageWrite{
+        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+        .pNext = nullptr,
+    };
+
+    drawImageWrite.dstBinding = 0;
+    // 目标描述符集，用于指定要更新的描述符集
+    drawImageWrite.dstSet = _drawImageDescriptors;
+    drawImageWrite.descriptorCount = 1;
+    drawImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+    // 描述符关联的图像信息，将图像信息写入描述符集
+    drawImageWrite.pImageInfo = &imgInfo;
+
+    // 更新描述符集
+    vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+
+    _mainDeletionQueue.push_function([this]() {
+        _globalDescriptorAllocator.destroy_pool(_device);
+
+        vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+    });
+}
+
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 {
     vkb::SwapchainBuilder swapchain_builder {_chosenGPU, _device, _surface};
@@ -217,6 +271,62 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
     _swapchain = vkbSwapchain.swapchain;
     _swapchainImages = vkbSwapchain.get_images().value();
     _swapchainImageViews = vkbSwapchain.get_image_views().value();
+}
+
+void VulkanEngine::init_pipelines()
+{
+    init_background_pipelines();
+}
+
+void VulkanEngine::init_background_pipelines()
+{
+    // 创建计算管线布局
+    VkPipelineLayoutCreateInfo computeLayout{
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    // 设置描述符集布局
+    computeLayout.pSetLayouts = &_drawImageDescriptorLayout;
+    computeLayout.setLayoutCount = 1;
+
+    VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
+
+    // 加载着色器模块
+    VkShaderModule computeDrawShader;
+    if (!vkutil::load_shader_module("../shaders/gradient.comp.spv", _device, &computeDrawShader)) {
+        fmt::println("Error when building the compute shader");
+    }
+
+    // 设置着色器阶段信息
+    VkPipelineShaderStageCreateInfo shaderStageInfo {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+    shaderStageInfo.module = computeDrawShader;
+    shaderStageInfo.pName = "main";
+
+    // 设置计算管线创建信息
+    VkComputePipelineCreateInfo computePipelineCreateInfo {
+        .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    // 设置管线布局
+    computePipelineCreateInfo.layout = _gradientPipelineLayout;
+    // 设置着色器阶段
+    computePipelineCreateInfo.stage = shaderStageInfo;
+
+    // 创建计算管线
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_gradientPipeline));
+
+    // 释放着色器模块
+    vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+
+    // 添加销毁函数到删除队列
+    _mainDeletionQueue.push_function([this] {
+        vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+    });
 }
 
 void VulkanEngine::destroy_swapchain()
@@ -351,16 +461,25 @@ void VulkanEngine::draw()
 
 void VulkanEngine::draw_background(VkCommandBuffer cmd)
 {
-    // 绘制背景
-    VkClearColorValue clearValue{};
-    float flash = std::abs(std::sin(_frameNumber / 120.f));
-    clearValue =  { flash, flash, flash, 1.0f };
+    // // 绘制背景
+    // VkClearColorValue clearValue{};
+    // float flash = std::abs(std::sin(_frameNumber / 120.f));
+    // clearValue =  { flash, flash, flash, 1.0f };
 
-    // 设置清除区域
-    VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
+    // // 设置清除区域
+    // VkImageSubresourceRange clearRange = vkinit::image_subresource_range(VK_IMAGE_ASPECT_COLOR_BIT);
 
-    // 清除图像
-    vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+    // // 清除图像
+    // vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
+    
+    // 绑定计算管线
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+
+    // 绑定描述符集 
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+
+    // 执行计算
+    vkCmdDispatch(cmd, std::ceil(_drawImageExtent.width / 16.0), std::ceil(_drawImageExtent.height / 16.0), 1);
 }
 
 void VulkanEngine::run()

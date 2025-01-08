@@ -4,6 +4,7 @@
 #pragma once
 
 #include <vk_types.h>
+#include "vk_descriptors.h"
 
 struct DeletionQueue
 {
@@ -114,6 +115,21 @@ private:
 	 */
 	void destroy_swapchain();
 
+	/**
+	 * @brief 初始化描述符
+
+	 */
+	void init_descriptors();
+
+	/**
+	 * @brief 初始化管线
+	 */
+	void init_pipelines();
+
+	/**
+	 * @brief 初始化背景管线
+	 */
+	void init_background_pipelines();
 
 	/**
 	 * @brief 绘制背景
@@ -165,4 +181,17 @@ private:
 	AllocatedImage _drawImage;
 	// 分配的图像大小
 	VkExtent2D _drawImageExtent;
+
+	// 描述符分配器
+	DescriptorAllocator _globalDescriptorAllocator;
+
+	// 描述符集
+	VkDescriptorSet _drawImageDescriptors;
+	// 描述符集布局
+	VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+	// 渐变管线
+	VkPipeline _gradientPipeline;
+	// 渐变管线布局
+	VkPipelineLayout _gradientPipelineLayout;
 };

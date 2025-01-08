@@ -1,25 +1,37 @@
 #version 460
 
+// 定义计算着色器的工作组大小，每个工作组包含16x16个线程
 layout (local_size_x = 16, local_size_y = 16) in;
 
-layout(rgba16f,set = 0, binding = 0) uniform image2D image;
+// 定义一个2D图像，格式为RGBA16F（16位浮点数的RGBA格式），绑定到绑定点0
+layout(rgba16f, set = 0, binding = 0) uniform image2D image;
 
-
+// 主函数，每个线程都会执行这个函数
 void main() 
 {
+    // ivec2 是 GLSL（OpenGL Shading Language）中的一种数据类型，表示一个包含两个整数的向量。
+    // 获取当前线程处理的像素坐标
     ivec2 texelCoord = ivec2(gl_GlobalInvocationID.xy);
-	ivec2 size = imageSize(image);
+    
+    // 获取图像的大小（宽度和高度）
+    ivec2 size = imageSize(image);
 
+    // 检查当前线程处理的像素坐标是否在图像范围内
     if(texelCoord.x < size.x && texelCoord.y < size.y)
     {
+        // 初始化颜色为黑色（R=0, G=0, B=0, A=1）
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);        
 
+        // 如果当前线程不是工作组中的第一个线程（即x和y都不为0）
         if(gl_LocalInvocationID.x != 0 && gl_LocalInvocationID.y != 0)
         {
-            color.x = float(texelCoord.x)/(size.x);
-            color.y = float(texelCoord.y)/(size.y);	
+            // 根据像素的x和y坐标计算颜色值，生成渐变效果
+            // R通道的值是x坐标除以图像宽度，G通道的值是y坐标除以图像高度
+            color.x = float(texelCoord.x) / (size.x);
+            color.y = float(texelCoord.y) / (size.y);	
         }
     
+        // 将计算得到的颜色值存储到图像的对应像素位置
         imageStore(image, texelCoord, color);
     }
 }
