@@ -153,11 +153,14 @@ void VulkanEngine::init_swapchain()
         .height = _windowExtent.height,
         .depth = 1,
     };
-    VkFormat imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    _drawImage.imageFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
+    _drawImage.imageExtent = imageExtent;
+
     VkImageUsageFlags drawImageUsages = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
                                     | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 
-    VkImageCreateInfo drawImageInfo = vkinit::image_create_info(imageFormat, drawImageUsages, imageExtent);
+    VkImageCreateInfo drawImageInfo = vkinit::image_create_info(_drawImage.imageFormat, drawImageUsages, imageExtent);
 
     // 分配图像内存
     VmaAllocationCreateInfo allocationInfo{};
@@ -167,7 +170,7 @@ void VulkanEngine::init_swapchain()
     VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &allocationInfo, &_drawImage.image, &_drawImage.allocation, nullptr));
 
     // 创建图像视图
-    VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
+    VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
     VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_drawImage.imageView));
 
     // 添加图像销毁函数到删除队列
@@ -306,6 +309,7 @@ void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
 void VulkanEngine::init_pipelines()
 {
     init_background_pipelines();
+    init_triangle_pipeline();
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -399,6 +403,62 @@ void VulkanEngine::init_background_pipelines()
         vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
         vkDestroyPipeline(_device, gradientColorPipeline.pipeline, nullptr);
         vkDestroyPipeline(_device, skyPipeline.pipeline, nullptr);
+    });
+}
+
+void VulkanEngine::init_triangle_pipeline()
+{
+    VkShaderModule vertShader, fragShader;
+    if (!vkutil::load_shader_module("../shaders/colored_triangle.vert.spv", _device, &vertShader)) {
+        fmt::println("Error when building the triangle vertex shader");
+    }
+    else {
+        fmt::println("Triangle Vertex shader loaded successfully");
+    }
+
+    if (!vkutil::load_shader_module("../shaders/colored_triangle.frag.spv", _device, &fragShader)) {
+        fmt::println("Error when building the triangle fragment shader");
+    }
+    else {
+        fmt::println("Triangle Fragment shader loaded successfully");
+    }
+    
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_trianglePipelineLayout));
+
+    vkutil::PipelineBuilder builder;
+    builder._pipelineLayout = _trianglePipelineLayout;
+    // 设置着色器
+    builder.set_shaders(vertShader, fragShader);
+    // 设置输入拓扑
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    // 设置多边形模式
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    // 设置剔除模式
+    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    // 设置多重采样为无
+    builder.set_multisampling_none();
+    // 禁用深度和模板测试
+    builder.disable_depth_stencil();
+    // 禁用颜色混合
+    builder.disable_blending();
+
+    // 设置颜色附件格式
+    builder.set_color_attachment_format(_drawImage.imageFormat);
+    // 设置深度附件格式
+    builder.set_depth_attachment_format(VK_FORMAT_UNDEFINED);
+
+    // 构建管线
+    _trianglePipeline = builder.build_pipeline(_device);
+
+    // 释放着色器模块
+    vkDestroyShaderModule(_device, vertShader, nullptr);
+    vkDestroyShaderModule(_device, fragShader, nullptr);
+    
+    // 添加销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vkDestroyPipelineLayout(_device, _trianglePipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _trianglePipeline, nullptr);
     });
 }
 
@@ -554,9 +614,15 @@ void VulkanEngine::draw()
 
     // 绘制背景
     draw_background(cmd);
+    
+    // 将绘制图像从通用状态转换为颜色附件状态
+    vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    
+    // 绘制几何体
+    draw_geometry(cmd);
 
-    // 将绘制图像从通用状态转换为复制源状态
-    vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // 将绘制图像从颜色附件状态转换为复制源状态
+    vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
     // 将交换链图像从未定义状态转换为复制目标状态
     vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
@@ -629,13 +695,47 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
     vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
     
     // 设置push constants
-    // ComputePushConstants pushConstants{};
-    // pushConstants.data1 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // pushConstants.data2 = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
     vkCmdPushConstants(cmd, pipeline.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pipeline.pushConstants);
 
     // 执行计算
     vkCmdDispatch(cmd, std::ceil(_drawImageExtent.width / 16.0), std::ceil(_drawImageExtent.height / 16.0), 1);
+}
+
+void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
+{
+    // 设置颜色附件信息
+    VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+
+    // 设置渲染信息
+    VkRenderingInfo renderingInfo = vkinit::rendering_info(_drawImageExtent, &colorAttachmentInfo, nullptr);
+    
+    // 开始渲染
+    vkCmdBeginRendering(cmd, &renderingInfo);
+
+    // 绑定几何体管线
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+
+    // 设置viewport
+    VkViewport viewport {};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<float>(_drawImageExtent.width);
+    viewport.height = static_cast<float>(_drawImageExtent.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+    vkCmdSetViewport(cmd, 0, 1, &viewport);
+
+    // 设置裁剪矩形
+    VkRect2D scissor {};
+    scissor.offset = {0, 0};
+    scissor.extent = _drawImageExtent;
+    vkCmdSetScissor(cmd, 0, 1, &scissor);
+
+    // 绘制三角形
+    vkCmdDraw(cmd, 3, 1, 0, 0);
+
+    // 结束渲染
+    vkCmdEndRendering(cmd);
 }
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)

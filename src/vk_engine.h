@@ -158,6 +158,11 @@ private:
 	 * @brief 初始化背景管线
 	 */
 	void init_background_pipelines();
+	
+	/**
+	 * @brief 初始化三角形管线
+	 */
+	void init_triangle_pipeline();
 
 	/**
 	 * @brief 初始化imgui
@@ -169,6 +174,12 @@ private:
 	 * @param cmd 命令缓冲区
 	 */
 	void draw_background(VkCommandBuffer cmd);
+	
+	/**
+	 * @brief 绘制几何体
+	 * @param cmd 命令缓冲区
+	 */
+	void draw_geometry(VkCommandBuffer cmd);
 	
 	/**
 	 * @brief 绘制imgui
@@ -230,11 +241,6 @@ private:
 	// 描述符集布局
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
 
-	// 渐变管线
-	VkPipeline _gradientPipeline;
-	// 渐变管线布局
-	VkPipelineLayout _gradientPipelineLayout;
-
 	// imgui 相关
 	// 栅栏	
 	VkFence _immFence;
@@ -243,8 +249,19 @@ private:
 	// 命令缓冲区
 	VkCommandBuffer _immCmdBuffer;
 	
+	// 渲染管线相关
+	// 渐变管线
+	VkPipeline _gradientPipeline;
+	// 渐变管线布局
+	VkPipelineLayout _gradientPipelineLayout;
+
 	// 多个计算管线
 	std::vector<ComputePipeline> _backgroundPipelines;
 	// 当前计算管线
 	int _currentBackgroundPipeline{0};
+	
+	// 三角形管线
+	VkPipeline _trianglePipeline;
+	// 三角形管线布局
+	VkPipelineLayout _trianglePipelineLayout;
 };
