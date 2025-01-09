@@ -21,6 +21,8 @@
 #include <imgui_impl_sdl2.h>
 #include <imgui_impl_vulkan.h>
 
+#include <glm/gtc/type_ptr.hpp>
+
 // 全局变量，用于单例模式，不使用普通的单例模式是为了能够在创建或者销毁单例时显式地修改指针
 VulkanEngine* loadedEngine = nullptr;
 
@@ -317,12 +319,26 @@ void VulkanEngine::init_background_pipelines()
     computeLayout.pSetLayouts = &_drawImageDescriptorLayout;
     computeLayout.setLayoutCount = 1;
 
+    // 设置push constants
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(ComputePushConstants);
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+
+    computeLayout.pPushConstantRanges = &pushConstantRange;
+    computeLayout.pushConstantRangeCount = 1;
+
     VK_CHECK(vkCreatePipelineLayout(_device, &computeLayout, nullptr, &_gradientPipelineLayout));
 
     // 加载着色器模块
-    VkShaderModule computeDrawShader;
-    if (!vkutil::load_shader_module("../shaders/gradient.comp.spv", _device, &computeDrawShader)) {
+    VkShaderModule gradientColorShader;
+    if (!vkutil::load_shader_module("../shaders/gradient_color.comp.spv", _device, &gradientColorShader)) {
         fmt::println("Error when building the compute shader");
+    }
+    
+    VkShaderModule skyShader;
+    if (!vkutil::load_shader_module("../shaders/sky.comp.spv", _device, &skyShader)) {
+        fmt::println("Error when building the sky shader");
     }
 
     // 设置着色器阶段信息
@@ -331,7 +347,7 @@ void VulkanEngine::init_background_pipelines()
         .pNext = nullptr,
     };
     shaderStageInfo.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-    shaderStageInfo.module = computeDrawShader;
+    shaderStageInfo.module = gradientColorShader;
     shaderStageInfo.pName = "main";
 
     // 设置计算管线创建信息
@@ -343,17 +359,46 @@ void VulkanEngine::init_background_pipelines()
     computePipelineCreateInfo.layout = _gradientPipelineLayout;
     // 设置着色器阶段
     computePipelineCreateInfo.stage = shaderStageInfo;
+    
+    // 创建渐变颜色计算管线及配置
+    ComputePipeline gradientColorPipeline;
+    gradientColorPipeline.name = "gradient_color";
+    gradientColorPipeline.pipelineLayout = _gradientPipelineLayout;
+    gradientColorPipeline.pushConstants = ComputePushConstants{
+        .data1 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f),
+        .data2 = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f),
+    };
 
     // 创建计算管线
-    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &_gradientPipeline));
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &gradientColorPipeline.pipeline));
+    
+    // 创建天空计算管线及配置
+    
+    computePipelineCreateInfo.stage.module = skyShader;
+
+    ComputePipeline skyPipeline;
+    skyPipeline.name = "sky";
+    skyPipeline.pipelineLayout = _gradientPipelineLayout;
+    skyPipeline.pushConstants = ComputePushConstants{
+        .data1 = glm::vec4(0.1f, 0.2f, 0.4f, 0.97f),
+    };
+
+    // 创建计算管线
+    VK_CHECK(vkCreateComputePipelines(_device, VK_NULL_HANDLE, 1, &computePipelineCreateInfo, nullptr, &skyPipeline.pipeline));
+    
+    // 将计算管线添加到背景管线列表
+    _backgroundPipelines.push_back(gradientColorPipeline);
+    _backgroundPipelines.push_back(skyPipeline);
 
     // 释放着色器模块
-    vkDestroyShaderModule(_device, computeDrawShader, nullptr);
+    vkDestroyShaderModule(_device, gradientColorShader, nullptr);
+    vkDestroyShaderModule(_device, skyShader, nullptr);
 
     // 添加销毁函数到删除队列
-    _mainDeletionQueue.push_function([this] {
+    _mainDeletionQueue.push_function([gradientColorPipeline, skyPipeline, this]() {
         vkDestroyPipelineLayout(_device, _gradientPipelineLayout, nullptr);
-        vkDestroyPipeline(_device, _gradientPipeline, nullptr);
+        vkDestroyPipeline(_device, gradientColorPipeline.pipeline, nullptr);
+        vkDestroyPipeline(_device, skyPipeline.pipeline, nullptr);
     });
 }
 
@@ -577,10 +622,17 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
     // vkCmdClearColorImage(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, &clearValue, 1, &clearRange);
     
     // 绑定计算管线
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipeline);
+    const auto&pipeline = _backgroundPipelines[_currentBackgroundPipeline];
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipeline);
 
     // 绑定描述符集 
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, _gradientPipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_COMPUTE, pipeline.pipelineLayout, 0, 1, &_drawImageDescriptors, 0, nullptr);
+    
+    // 设置push constants
+    // ComputePushConstants pushConstants{};
+    // pushConstants.data1 = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    // pushConstants.data2 = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    vkCmdPushConstants(cmd, pipeline.pipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, sizeof(ComputePushConstants), &pipeline.pushConstants);
 
     // 执行计算
     vkCmdDispatch(cmd, std::ceil(_drawImageExtent.width / 16.0), std::ceil(_drawImageExtent.height / 16.0), 1);
@@ -673,8 +725,20 @@ void VulkanEngine::run()
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
         
-        // test imgui
-        ImGui::ShowDemoWindow();
+        if (ImGui::Begin("Background")) {
+            const auto&pipeline = _backgroundPipelines[_currentBackgroundPipeline];
+
+            ImGui::Text("Selected effect: %s", pipeline.name);
+
+            ImGui::SliderInt("Effect Index: ", &_currentBackgroundPipeline, 0, _backgroundPipelines.size() - 1);
+            
+            ImGui::InputFloat4("Push Constant vec1: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data1)));
+            ImGui::InputFloat4("Push Constant vec2: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data2)));
+            ImGui::InputFloat4("Push Constant vec3: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data3)));
+            ImGui::InputFloat4("Push Constant vec4: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data4)));
+
+        }
+        ImGui::End();
 
         // 渲染imgui
         ImGui::Render();

@@ -6,6 +6,7 @@
 #include <vk_types.h>
 #include "vk_descriptors.h"
 
+// 删除队列，用于管理资源的生命周期
 struct DeletionQueue
 {
     std::vector<std::function<void()>> _deletionQueue;
@@ -31,6 +32,7 @@ struct DeletionQueue
     }
 };
 
+// 帧数据，包含命令池、命令缓冲区、信号量、栅栏、删除队列
 struct FrameData
 {
 	VkCommandPool _commandPool;
@@ -42,6 +44,26 @@ struct FrameData
 	VkFence _renderFence;
 	// 添加删除队列，用于管理资源的生命周期
 	DeletionQueue _deletionQueue;
+};
+
+// 计算管线常量
+struct ComputePushConstants
+{
+	glm::vec4 data1;
+	glm::vec4 data2;
+	glm::vec4 data3;
+	glm::vec4 data4;
+};
+
+// 计算管线配置
+struct ComputePipeline
+{
+	const char* name;
+
+	VkPipeline pipeline;
+	VkPipelineLayout pipelineLayout;
+	
+	ComputePushConstants pushConstants;
 };
 
 constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
@@ -220,4 +242,9 @@ private:
 	VkCommandPool _immCmdPool;
 	// 命令缓冲区
 	VkCommandBuffer _immCmdBuffer;
+	
+	// 多个计算管线
+	std::vector<ComputePipeline> _backgroundPipelines;
+	// 当前计算管线
+	int _currentBackgroundPipeline{0};
 };
