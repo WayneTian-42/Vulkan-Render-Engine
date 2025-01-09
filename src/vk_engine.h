@@ -84,6 +84,12 @@ public:
 	//run main loop
 	void run();
 
+	/**
+	 * @brief 立即提交命令	
+	 * @param function 函数
+	 */
+	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
+
 private:
 	/**
 	 * @brief 初始化Vulkan
@@ -132,10 +138,22 @@ private:
 	void init_background_pipelines();
 
 	/**
+	 * @brief 初始化imgui
+	 */
+	void init_imgui();
+
+	/**
 	 * @brief 绘制背景
 	 * @param cmd 命令缓冲区
 	 */
 	void draw_background(VkCommandBuffer cmd);
+	
+	/**
+	 * @brief 绘制imgui
+	 * @param cmd 命令缓冲区
+	 * @param targetImageView 目标图像视图
+	 */
+	void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
 
 private:
 	// vulkan 对象
@@ -194,4 +212,12 @@ private:
 	VkPipeline _gradientPipeline;
 	// 渐变管线布局
 	VkPipelineLayout _gradientPipelineLayout;
+
+	// imgui 相关
+	// 栅栏	
+	VkFence _immFence;
+	// 命令池
+	VkCommandPool _immCmdPool;
+	// 命令缓冲区
+	VkCommandBuffer _immCmdBuffer;
 };

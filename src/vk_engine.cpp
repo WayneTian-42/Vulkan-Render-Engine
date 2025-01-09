@@ -17,6 +17,10 @@
 #define VMA_IMPLEMENTATION
 #include <vk_mem_alloc.h>
 
+#include <imgui.h>
+#include <imgui_impl_sdl2.h>
+#include <imgui_impl_vulkan.h>
+
 // 全局变量，用于单例模式，不使用普通的单例模式是为了能够在创建或者销毁单例时显式地修改指针
 VulkanEngine* loadedEngine = nullptr;
 
@@ -51,6 +55,8 @@ void VulkanEngine::init()
     init_descriptors();
 
     init_pipelines();
+    
+    init_imgui();
 
     // everything went fine
     _isInitialized = true;
@@ -182,6 +188,20 @@ void VulkanEngine::init_commands()
 
         VK_CHECK(vkAllocateCommandBuffers(_device, &commandBufferInfo, &_frames[i]._commandBuffer));
     }
+
+    // 创建imgui命令池
+    VK_CHECK(vkCreateCommandPool(_device, &commandPoolInfo, nullptr, &_immCmdPool));
+
+    // 分配imgui命令缓冲区
+    VkCommandBufferAllocateInfo cmdAllocInfo = vkinit::command_buffer_allocate_info(_immCmdPool, 1);
+
+    // 创建imgui命令缓冲区
+    VK_CHECK(vkAllocateCommandBuffers(_device, &cmdAllocInfo, &_immCmdBuffer));
+    
+    // 添加imgui命令缓冲区销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vkDestroyCommandPool(_device, _immCmdPool, nullptr);
+    });
 }
 
 void VulkanEngine::init_sync_structures()
@@ -195,6 +215,14 @@ void VulkanEngine::init_sync_structures()
         VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._swapchainSemaphore));
         VK_CHECK(vkCreateSemaphore(_device, &semaphoreCreateInfo, nullptr, &_frames[i]._renderSemaphore));
     }
+
+    // 创建imgui栅栏
+    VK_CHECK(vkCreateFence(_device, &fenceCreateInfo, nullptr, &_immFence));
+    
+    // 添加imgui栅栏销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vkDestroyFence(_device, _immFence, nullptr);
+    });
 }
 
 void VulkanEngine::init_descriptors()
@@ -329,6 +357,77 @@ void VulkanEngine::init_background_pipelines()
     });
 }
 
+void VulkanEngine::init_imgui()
+{
+    // 创建imgui相关的descriptor pool
+    VkDescriptorPoolSize pool_sizes[] = {
+        { VK_DESCRIPTOR_TYPE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1000 },
+        { VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_TEXEL_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1000 },
+        { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC, 1000 },
+        { VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT, 1000 },
+    };
+
+    // 创建descriptor pool
+    VkDescriptorPoolCreateInfo pool_info {
+        .sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    pool_info.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+    pool_info.maxSets = 1000;
+    pool_info.poolSizeCount = static_cast<uint32_t>(std::size(pool_sizes));
+    pool_info.pPoolSizes = pool_sizes;
+
+    VkDescriptorPool imguiPool;
+    VK_CHECK(vkCreateDescriptorPool(_device, &pool_info, nullptr, &imguiPool));
+    
+    // 初始化imgui库
+    ImGui::CreateContext();
+
+    // 初始化imgui的SDL2库
+    ImGui_ImplSDL2_InitForVulkan(_window);
+
+    ImGui_ImplVulkan_InitInfo init_info {};
+    init_info.Instance = _instance;
+    init_info.PhysicalDevice = _chosenGPU;
+    init_info.Device = _device;
+    init_info.QueueFamily = _graphicsQueueFamily;
+    init_info.Queue = _graphicsQueue;
+    init_info.PipelineCache = VK_NULL_HANDLE;
+    init_info.DescriptorPool = imguiPool;
+    init_info.MinImageCount = 3;
+    init_info.ImageCount = 3;
+    init_info.UseDynamicRendering = VK_TRUE;
+    
+    // 动态渲染参数
+    init_info.PipelineRenderingCreateInfo = {
+        .sType = VK_STRUCTURE_TYPE_PIPELINE_RENDERING_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    init_info.PipelineRenderingCreateInfo.colorAttachmentCount = 1;
+    init_info.PipelineRenderingCreateInfo.pColorAttachmentFormats = &_swapchainImageFormat;
+    
+    init_info.MSAASamples = VK_SAMPLE_COUNT_1_BIT;
+
+    // 初始化imgui
+    ImGui_ImplVulkan_Init(&init_info);
+    
+    // 创建字体纹理
+    ImGui_ImplVulkan_CreateFontsTexture();
+
+    // 添加销毁函数到删除队列
+    _mainDeletionQueue.push_function([this, imguiPool]() {
+        ImGui_ImplVulkan_Shutdown();
+        vkDestroyDescriptorPool(_device, imguiPool, nullptr);
+    });
+}
+
 void VulkanEngine::destroy_swapchain()
 {
     vkDestroySwapchainKHR(_device, _swapchain, nullptr);
@@ -378,8 +477,6 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::draw()
 {
-    // nothing yet
-
     // 等待栅栏发出信号
     VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, VK_TRUE, static_cast<uint64_t>(1e9)));
 
@@ -407,21 +504,28 @@ void VulkanEngine::draw()
     VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
     VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
 
-    // 将交换链图像从未定义状态转换为颜色附件优化状态
+    // 将绘制图像从未定义状态转换为通用状态
     vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL);
 
     // 绘制背景
     draw_background(cmd);
 
-    // 将交换链图像从颜色附件优化状态转换为呈现源状态
+    // 将绘制图像从通用状态转换为复制源状态
     vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+    // 将交换链图像从未定义状态转换为复制目标状态
     vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 
-    // 复制图像到图像
+    // 复制绘制图像到交换链图像
     vkutil::copy_image_to_image(cmd, _drawImage.image, _swapchainImages[swapchainImageIndex], _drawImageExtent, _swapchainExtent);
 
-    // 将交换链图像从颜色附件优化状态转换为呈现源状态
-    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
+    // 将交换链图像从复制目标状态转换为颜色附件状态
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    
+    // 绘制imgui
+    draw_imgui(cmd, _swapchainImageViews[swapchainImageIndex]);
+    
+    // 将交换链图像从颜色附件状态转换为呈现源状态
+    vkutil::transition_image_layout(cmd, _swapchainImages[swapchainImageIndex], VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
 
     // 结束记录命令
     VK_CHECK(vkEndCommandBuffer(cmd));
@@ -482,6 +586,55 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
     vkCmdDispatch(cmd, std::ceil(_drawImageExtent.width / 16.0), std::ceil(_drawImageExtent.height / 16.0), 1);
 }
 
+void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
+{
+    // 设置颜色附件信息
+    VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(targetImageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    // 设置渲染信息
+    VkRenderingInfo renderingInfo = vkinit::rendering_info(_swapchainExtent, &colorAttachmentInfo, nullptr);
+    
+    // 动态渲染
+
+    vkCmdBeginRendering(cmd, &renderingInfo);
+
+    ImGui_ImplVulkan_RenderDrawData(ImGui::GetDrawData(), cmd);
+
+    vkCmdEndRendering(cmd);
+}
+
+// todo1: 不使用immediate_submit
+// todo2: 使用一个新的queue，而不是使用_graphicsQueue
+void VulkanEngine::immediate_submit(std::function<void(VkCommandBuffer cmd)> &&function)
+{
+    // 重置栅栏，此处不需要等待栅栏再重置，因为imgui的栅栏是独立的
+    VK_CHECK(vkResetFences(_device, 1, &_immFence));
+    // 重置命令池
+    VK_CHECK(vkResetCommandPool(_device, _immCmdPool, 0));
+
+    VkCommandBuffer cmd = _immCmdBuffer;
+
+    // 开始记录命令
+    VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
+
+    VK_CHECK(vkBeginCommandBuffer(cmd, &cmdBeginInfo));
+
+    // 执行函数
+    function(cmd);
+
+    // 结束记录命令
+    VK_CHECK(vkEndCommandBuffer(cmd));
+
+    // 提交命令
+    VkCommandBufferSubmitInfo cmdSubmitInfo = vkinit::command_buffer_submit_info(cmd);
+    VkSubmitInfo2 submitInfo = vkinit::submit_info(&cmdSubmitInfo, nullptr, nullptr);
+    
+    // 提交命令，_renderFence将会被阻塞直到命令完成
+    VK_CHECK(vkQueueSubmit2(_graphicsQueue, 1, &submitInfo, _immFence));
+
+    // 等待栅栏
+    VK_CHECK(vkWaitForFences(_device, 1, &_immFence, VK_TRUE, UINT64_MAX));
+}
+
 void VulkanEngine::run()
 {
     SDL_Event e;
@@ -503,6 +656,9 @@ void VulkanEngine::run()
                     stop_rendering = false;
                 }
             }
+
+            // 处理imgui事件
+            ImGui_ImplSDL2_ProcessEvent(&e);
         }
 
         // do not draw if we are minimized
@@ -511,6 +667,17 @@ void VulkanEngine::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
+        
+        // 开始imgui渲染
+        ImGui_ImplVulkan_NewFrame();
+        ImGui_ImplSDL2_NewFrame();
+        ImGui::NewFrame();
+        
+        // test imgui
+        ImGui::ShowDemoWindow();
+
+        // 渲染imgui
+        ImGui::Render();
 
         draw();
     }
