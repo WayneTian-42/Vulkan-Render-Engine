@@ -36,7 +36,7 @@ void VulkanEngine::init()
     // We initialize SDL and create a window with it.
     SDL_Init(SDL_INIT_VIDEO);
 
-    SDL_WindowFlags window_flags = (SDL_WindowFlags)(SDL_WINDOW_VULKAN);
+    SDL_WindowFlags window_flags = static_cast<SDL_WindowFlags>(SDL_WINDOW_VULKAN | SDL_WINDOW_RESIZABLE);
 
     _window = SDL_CreateWindow(
         "Vulkan Engine",
@@ -532,8 +532,10 @@ void VulkanEngine::init_mesh_pipeline()
     // builder.disable_depth_stencil();
     // 启用深度测试
     builder.enable_depth_test(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
-    // 禁用颜色混合
-    builder.disable_blending();
+    // // 禁用颜色混合
+    // builder.disable_blending();
+    // 启用颜色混合，使用alpha混合
+    builder.enable_blending_alphablended();
 
     // 设置颜色附件格式
     builder.set_color_attachment_format(_drawImage.imageFormat);
@@ -556,27 +558,27 @@ void VulkanEngine::init_mesh_pipeline()
 
 void VulkanEngine::init_default_data()
 {
-    // // 创建顶点数据
-    // std::array<Vertex, 4> rect_vertices;
+    // 创建顶点数据
+    std::array<Vertex, 4> rect_vertices;
 
-    // rect_vertices[0].position = glm::vec3(0.5f, -0.5f, 0.0f);
-    // rect_vertices[1].position = glm::vec3(0.5f, 0.5f, 0.0f);
-    // rect_vertices[2].position = glm::vec3(-0.5f, -0.5f, 0.0f);
-    // rect_vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
+    rect_vertices[0].position = glm::vec3(0.5f, -0.5f, 0.0f);
+    rect_vertices[1].position = glm::vec3(0.5f, 0.5f, 0.0f);
+    rect_vertices[2].position = glm::vec3(-0.5f, -0.5f, 0.0f);
+    rect_vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
     
-    // rect_vertices[0].color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    // rect_vertices[1].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-    // rect_vertices[2].color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    // rect_vertices[3].color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    rect_vertices[0].color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    rect_vertices[1].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    rect_vertices[2].color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    rect_vertices[3].color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
     
-    // std::array<uint32_t, 6> rect_indices = {0, 1, 2, 2, 1, 3};
+    std::array<uint32_t, 6> rect_indices = {0, 1, 2, 2, 1, 3};
     
-    // _meshBuffers = upload_mesh(rect_indices, rect_vertices);
+    _meshBuffers = upload_mesh(rect_indices, rect_vertices);
     
-    // _mainDeletionQueue.push_function([this]() {
-    //     destroy_buffer(_meshBuffers.indexBuffer);
-    //     destroy_buffer(_meshBuffers.vertexBuffer);
-    // });
+    _mainDeletionQueue.push_function([this]() {
+        destroy_buffer(_meshBuffers.indexBuffer);
+        destroy_buffer(_meshBuffers.vertexBuffer);
+    });
     
     _testMeshes = load_gltf_files(this, "../assets/basicmesh.glb").value();
 }
@@ -807,7 +809,11 @@ void VulkanEngine::draw()
 
     // 获取交换链图像索引
     uint32_t swapchainImageIndex;
-    VK_CHECK(vkAcquireNextImageKHR(_device, _swapchain, static_cast<uint64_t>(1e9), get_current_frame()._swapchainSemaphore, VK_NULL_HANDLE, &swapchainImageIndex));
+    VkResult result =   vkAcquireNextImageKHR(_device, _swapchain, static_cast<uint64_t>(1e9), get_current_frame()._swapchainSemaphore, VK_NULL_HANDLE, &swapchainImageIndex);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        _resizeRequested = true;
+        return;
+    }
 
     // 获取command buffer
     VkCommandBuffer cmd = get_current_frame()._commandBuffer;
@@ -816,8 +822,8 @@ void VulkanEngine::draw()
     VK_CHECK(vkResetCommandBuffer(cmd, 0));
 
     // 设置drawImage的extent
-    _drawImageExtent.width = _swapchainExtent.width;
-    _drawImageExtent.height = _swapchainExtent.height;
+    _drawImageExtent.width = static_cast<uint32_t>(std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * _renderScale);
+    _drawImageExtent.height = static_cast<uint32_t>(std::min(_swapchainExtent.height, _drawImage.imageExtent.height) * _renderScale);
 
     // 开始记录命令
     VkCommandBufferBeginInfo cmdBeginInfo = vkinit::command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT);
@@ -884,7 +890,10 @@ void VulkanEngine::draw()
 
     presentInfo.pImageIndices = &swapchainImageIndex;
 
-    VK_CHECK(vkQueuePresentKHR(_graphicsQueue, &presentInfo));
+    VkResult presentResult = vkQueuePresentKHR(_graphicsQueue, &presentInfo);
+    if (presentResult == VK_ERROR_OUT_OF_DATE_KHR) {
+        _resizeRequested = true;
+    }
 
     ++_frameNumber;
 }
@@ -926,10 +935,11 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     // 反转y轴，vulkan中y轴向上，而glm中y轴向下
     projection[1][1] *= -1;
     
+    // 注意，二者初始化调用的函数接口不同，深度附件需要使用vkinit::depth_attachment_info
     // 设置颜色附件信息
     VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
     // 设置深度附件信息
-    VkRenderingAttachmentInfo depthAttachmentInfo = vkinit::attachment_info(_depthImage.imageView, nullptr, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+    VkRenderingAttachmentInfo depthAttachmentInfo = vkinit::depth_attachment_info(_depthImage.imageView, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     // 设置渲染信息
     VkRenderingInfo renderingInfo = vkinit::rendering_info(_drawImageExtent, &colorAttachmentInfo, &depthAttachmentInfo);
@@ -962,13 +972,20 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
     GPUDrawPushConstants drawPushConstants;
+    drawPushConstants.worldMatrix = glm::mat4(1.0f);
+    drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
+    
+    vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
+    vkCmdBindIndexBuffer(cmd, _meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    
+    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+    
     drawPushConstants.worldMatrix = projection * view;
-    // drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
     drawPushConstants.vertexBuffer = _testMeshes[2]->meshBuffers.vertexBufferAddress;
 
     vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
     vkCmdBindIndexBuffer(cmd, _testMeshes[2]->meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-    
+
     vkCmdDrawIndexed(cmd, _testMeshes[2]->surfaces[0].indexCount, 1, 
         _testMeshes[2]->surfaces[0].startIndex, 0, 0);
 
@@ -1057,6 +1074,10 @@ void VulkanEngine::run()
             std::this_thread::sleep_for(std::chrono::milliseconds(100));
             continue;
         }
+
+        if (_resizeRequested) {
+            resize_swapchain();
+        }
         
         // 开始imgui渲染
         ImGui_ImplVulkan_NewFrame();
@@ -1083,4 +1104,19 @@ void VulkanEngine::run()
 
         draw();
     }
+}
+
+void VulkanEngine::resize_swapchain()
+{
+    vkDeviceWaitIdle(_device);
+    
+    destroy_swapchain();
+
+    int width, height;
+    SDL_GetWindowSize(_window, &width, &height);
+    _swapchainExtent = {static_cast<uint32_t>(width), static_cast<uint32_t>(height)};
+
+    create_swapchain(_swapchainExtent.width, _swapchainExtent.height);
+
+    _resizeRequested = false;
 }

@@ -86,7 +86,21 @@ public:
      * @param compareOp 深度比较操作
      */
     void enable_depth_test(bool depthWriteEnable, VkCompareOp compareOp);
+    
+    // 颜色混合计算方法
+    // outColor = srcColor * srcColorBlendFactor <op> dstColor * dstColorBlendFactor;
 
+    /**
+     * @brief 启用混合，使用加法混合
+     * outColor = srcColor.rgb * srcColor.a + dstColor.rgb * 1.0
+     */
+    void enable_blending_additive();
+    
+    /**
+     * @brief 启用混合，使用alpha混合
+     * outColor = srcColor.rgb * srcColor.a + dstColor.rgb * (1.0 - srcColor.a)
+     */
+    void enable_blending_alphablended();
 public:
     std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;
     

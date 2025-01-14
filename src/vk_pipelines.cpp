@@ -221,3 +221,34 @@ void vkutil::PipelineBuilder::enable_depth_test(bool depthWriteEnable, VkCompare
     _depthStencil.maxDepthBounds = 1.0f;
 }
 
+void vkutil::PipelineBuilder::enable_blending_additive()
+{
+    _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    _colorBlendAttachment.blendEnable = VK_TRUE;
+    // 源颜色混合因子为源颜色alpha值，目标颜色混合因子为1
+    _colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    _colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE;
+    // 颜色混合操作，使用加法混合
+    _colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    // 源alpha混合因子为1，目标alpha混合因子为0
+    _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    // 颜色混合操作，使用加法混合
+    _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}
+
+void vkutil::PipelineBuilder::enable_blending_alphablended()
+{
+    _colorBlendAttachment.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    _colorBlendAttachment.blendEnable = VK_TRUE;
+    // 源颜色混合因子为源颜色alpha值，目标颜色混合因子为1减去源颜色alpha值    
+    _colorBlendAttachment.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    _colorBlendAttachment.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    // 颜色混合操作，使用加法混合
+    _colorBlendAttachment.colorBlendOp = VK_BLEND_OP_ADD;
+    // 源alpha混合因子为1，目标alpha混合因子为0
+    _colorBlendAttachment.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    _colorBlendAttachment.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    // 颜色混合操作，使用加法混合
+    _colorBlendAttachment.alphaBlendOp = VK_BLEND_OP_ADD;
+}

@@ -76,7 +76,7 @@ public:
 	bool _isInitialized{ false };
 	int _frameNumber {0};
 	bool stop_rendering{ false };
-	VkExtent2D _windowExtent{ 1700 , 900 };
+	VkExtent2D _windowExtent{ 1600 , 800 };
 
 	struct SDL_Window* _window{ nullptr };
 
@@ -221,6 +221,11 @@ private:
 	 * @param targetImageView 目标图像视图
 	 */
 	void draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView);
+	
+	/**
+	 * @brief 重新创建交换链
+	 */
+	void resize_swapchain();
 
 private:
 	// vulkan 对象
@@ -284,6 +289,11 @@ private:
 	VkCommandPool _immCmdPool;
 	// 命令缓冲区
 	VkCommandBuffer _immCmdBuffer;
+	
+	// 是否需要重新创建交换链
+	bool _resizeRequested{ false };
+	// 渲染缩放
+	float _renderScale {1.f};
 	
 	// 渲染管线相关
 	// 渐变管线
