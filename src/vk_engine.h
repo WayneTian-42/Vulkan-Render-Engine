@@ -165,9 +165,42 @@ private:
 	void init_triangle_pipeline();
 
 	/**
+	 * @brief 初始化网格管线
+	 */
+	void init_mesh_pipeline();
+	
+	/**
+	 * @brief 初始化默认数据
+	 */
+	void init_default_data();
+
+	/**
 	 * @brief 初始化imgui
 	 */
 	void init_imgui();
+	
+	/**
+	 * @brief 创建缓冲区
+	 * @param allocSize 分配大小
+	 * @param usage 缓冲区使用标志
+	 * @param memoryUsage 内存使用标志
+	 * @return AllocatedBuffer 缓冲区
+	 */
+	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	
+	/**
+	 * @brief 销毁缓冲区
+	 * @param buffer 缓冲区
+	 */
+	void destroy_buffer(const AllocatedBuffer& buffer);
+	
+	/**
+	 * @brief 创建网格并上传到GPU
+	 * @param indices 索引
+	 * @param vertices 顶点
+	 * @return GPUMeshBuffers 网格缓冲区
+	 */
+	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 	/**
 	 * @brief 绘制背景
@@ -264,4 +297,11 @@ private:
 	VkPipeline _trianglePipeline;
 	// 三角形管线布局
 	VkPipelineLayout _trianglePipelineLayout;
+	
+	// 网格管线
+	VkPipeline _meshPipeline;
+	// 网格管线布局
+	VkPipelineLayout _meshPipelineLayout;
+	// 网格数据
+	GPUMeshBuffers _meshBuffers;
 };

@@ -59,6 +59,8 @@ void VulkanEngine::init()
     init_pipelines();
     
     init_imgui();
+    
+    init_default_data();
 
     // everything went fine
     _isInitialized = true;
@@ -135,6 +137,8 @@ void VulkanEngine::init_vulkan()
     allocatorInfo.physicalDevice = _chosenGPU;
     allocatorInfo.device = _device;
     allocatorInfo.instance = _instance;
+    // 启用缓冲区设备地址
+    allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
     vmaCreateAllocator(&allocatorInfo, &_allocator);
 
     // 添加内存分配器销毁函数到删除队列
@@ -310,6 +314,7 @@ void VulkanEngine::init_pipelines()
 {
     init_background_pipelines();
     init_triangle_pipeline();
+    init_mesh_pipeline();
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -462,6 +467,96 @@ void VulkanEngine::init_triangle_pipeline()
     });
 }
 
+void VulkanEngine::init_mesh_pipeline()
+{
+    VkShaderModule vertShader, fragShader;
+    if (!vkutil::load_shader_module("../shaders/colored_triangle_mesh.vert.spv", _device, &vertShader)) {
+        fmt::println("Error when building the mesh vertex shader");
+    }
+    else {
+        fmt::println("Mesh Vertex shader loaded successfully");
+    }
+
+    if (!vkutil::load_shader_module("../shaders/colored_triangle.frag.spv", _device, &fragShader)) {
+        fmt::println("Error when building the mesh fragment shader");
+    }
+    else {
+        fmt::println("Mesh Fragment shader loaded successfully");
+    }
+    
+    // 设置push constants
+    VkPushConstantRange pushConstantRange{};
+    pushConstantRange.offset = 0;
+    pushConstantRange.size = sizeof(GPUDrawPushConstants);
+    pushConstantRange.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    
+    // 创建管线布局
+    VkPipelineLayoutCreateInfo pipelineLayoutInfo = vkinit::pipeline_layout_create_info();
+    pipelineLayoutInfo.pPushConstantRanges = &pushConstantRange;
+    pipelineLayoutInfo.pushConstantRangeCount = 1;
+    VK_CHECK(vkCreatePipelineLayout(_device, &pipelineLayoutInfo, nullptr, &_meshPipelineLayout));
+
+    vkutil::PipelineBuilder builder;
+    builder._pipelineLayout = _meshPipelineLayout;
+    // 设置着色器
+    builder.set_shaders(vertShader, fragShader);
+    // 设置输入拓扑
+    builder.set_input_topology(VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+    // 设置多边形模式
+    builder.set_polygon_mode(VK_POLYGON_MODE_FILL);
+    // 设置剔除模式
+    builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
+    // 设置多重采样为无
+    builder.set_multisampling_none();
+    // 禁用深度和模板测试
+    builder.disable_depth_stencil();
+    // 禁用颜色混合
+    builder.disable_blending();
+
+    // 设置颜色附件格式
+    builder.set_color_attachment_format(_drawImage.imageFormat);
+    // 设置深度附件格式
+    builder.set_depth_attachment_format(VK_FORMAT_UNDEFINED);
+
+    // 构建管线
+    _meshPipeline = builder.build_pipeline(_device);
+
+    // 释放着色器模块
+    vkDestroyShaderModule(_device, vertShader, nullptr);
+    vkDestroyShaderModule(_device, fragShader, nullptr);
+    
+    // 添加销毁函数到删除队列
+    _mainDeletionQueue.push_function([this]() {
+        vkDestroyPipelineLayout(_device, _meshPipelineLayout, nullptr);
+        vkDestroyPipeline(_device, _meshPipeline, nullptr);
+    });
+}
+
+void VulkanEngine::init_default_data()
+{
+    // 创建顶点数据
+    std::array<Vertex, 4> rect_vertices;
+
+    rect_vertices[0].position = glm::vec3(0.5f, -0.5f, 0.0f);
+    rect_vertices[1].position = glm::vec3(0.5f, 0.5f, 0.0f);
+    rect_vertices[2].position = glm::vec3(-0.5f, -0.5f, 0.0f);
+    rect_vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
+    
+    rect_vertices[0].color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    rect_vertices[1].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    rect_vertices[2].color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    rect_vertices[3].color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    
+    std::array<uint32_t, 6> rect_indices = {0, 1, 2, 2, 1, 3};
+    
+    _meshBuffers = upload_mesh(rect_indices, rect_vertices);
+    
+    _mainDeletionQueue.push_function([this]() {
+        destroy_buffer(_meshBuffers.indexBuffer);
+        destroy_buffer(_meshBuffers.vertexBuffer);
+    });
+}
+
 void VulkanEngine::init_imgui()
 {
     // 创建imgui相关的descriptor pool
@@ -531,6 +626,95 @@ void VulkanEngine::init_imgui()
         ImGui_ImplVulkan_Shutdown();
         vkDestroyDescriptorPool(_device, imguiPool, nullptr);
     });
+}
+
+// 只分配空间，不填充数据
+AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+{
+    AllocatedBuffer newBuffer;
+
+    // 缓冲区创建信息
+    VkBufferCreateInfo bufferInfo {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
+        .pNext = nullptr,
+    };
+    bufferInfo.size = allocSize;
+    
+    bufferInfo.usage = usage;
+    
+    VmaAllocationCreateInfo vmaAllocInfo {};
+    vmaAllocInfo.usage = memoryUsage;
+    // 设置内存映射标志为MAPPED，该标志表示内存分配后，内存会自动映射到CPU
+    vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
+    
+    VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaAllocInfo,
+     &newBuffer.buffer, &newBuffer.allocation, &newBuffer.allocationInfo));
+    
+    return newBuffer;
+}
+
+void VulkanEngine::destroy_buffer(const AllocatedBuffer& buffer)
+{
+    vmaDestroyBuffer(_allocator, buffer.buffer, buffer.allocation);
+}
+
+// 使用span避免数据拷贝
+GPUMeshBuffers VulkanEngine::upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices)
+{
+    // 计算索引和顶点的大小
+    const size_t indexBufferSize = indices.size() * sizeof(uint32_t);
+    const size_t vertexBufferSize = vertices.size() * sizeof(Vertex);
+    
+    GPUMeshBuffers newSurface;
+
+    // 创建索引缓冲区
+    newSurface.indexBuffer = create_buffer(indexBufferSize, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+     VMA_MEMORY_USAGE_GPU_ONLY);
+    
+    // 创建顶点缓冲区，存储到SSBO中
+    newSurface.vertexBuffer = create_buffer(vertexBufferSize, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+     VMA_MEMORY_USAGE_GPU_ONLY);
+
+    VkBufferDeviceAddressInfo bufferDeviceAddressInfo {
+        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO,
+        .pNext = nullptr,
+    };
+    bufferDeviceAddressInfo.buffer = newSurface.vertexBuffer.buffer;
+    newSurface.vertexBufferAddress = vkGetBufferDeviceAddress(_device, &bufferDeviceAddressInfo);
+    
+    // 创建临时缓冲区，用于上传数据
+    AllocatedBuffer stagingBuffer = create_buffer(indexBufferSize + vertexBufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+     VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    void* data = stagingBuffer.allocation->GetMappedData();
+
+    // 上传数据
+    memcpy(data, indices.data(), indexBufferSize);
+    memcpy(static_cast<char*>(data) + indexBufferSize, vertices.data(), vertexBufferSize);
+    
+    // 提交数据拷贝命令
+    immediate_submit([&](VkCommandBuffer cmd) {
+        // 拷贝索引数据
+        VkBufferCopy indexCopy {};
+        indexCopy.srcOffset = 0;
+        indexCopy.dstOffset = 0;
+        indexCopy.size = indexBufferSize;
+        vkCmdCopyBuffer(cmd, stagingBuffer.buffer, newSurface.indexBuffer.buffer,
+         1, &indexCopy);
+
+        // 拷贝顶点数据
+        VkBufferCopy vertexCopy {};
+        vertexCopy.srcOffset = indexBufferSize;
+        vertexCopy.dstOffset = 0;
+        vertexCopy.size = vertexBufferSize;
+        vkCmdCopyBuffer(cmd, stagingBuffer.buffer, newSurface.vertexBuffer.buffer,
+         1, &vertexCopy);
+    });
+
+    // 销毁临时缓冲区
+    destroy_buffer(stagingBuffer);
+
+    return newSurface;  
 }
 
 void VulkanEngine::destroy_swapchain()
@@ -733,6 +917,17 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
     // 绘制三角形
     vkCmdDraw(cmd, 3, 1, 0, 0);
+    
+    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
+
+    GPUDrawPushConstants drawPushConstants;
+    drawPushConstants.worldMatrix = glm::mat4(1.0f);
+    drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
+
+    vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
+    vkCmdBindIndexBuffer(cmd, _meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    
+    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
 
     // 结束渲染
     vkCmdEndRendering(cmd);
