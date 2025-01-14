@@ -165,22 +165,42 @@ void VulkanEngine::init_swapchain()
                                     | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 
     VkImageCreateInfo drawImageInfo = vkinit::image_create_info(_drawImage.imageFormat, drawImageUsages, imageExtent);
-
+    
     // 分配图像内存
     VmaAllocationCreateInfo allocationInfo{};
     allocationInfo.usage = VMA_MEMORY_USAGE_GPU_ONLY;
     allocationInfo.requiredFlags = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
 
-    VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &allocationInfo, &_drawImage.image, &_drawImage.allocation, nullptr));
+    VK_CHECK(vmaCreateImage(_allocator, &drawImageInfo, &allocationInfo,
+        &_drawImage.image, &_drawImage.allocation, nullptr));
 
     // 创建图像视图
     VkImageViewCreateInfo imageViewInfo = vkinit::imageview_create_info(_drawImage.imageFormat, _drawImage.image, VK_IMAGE_ASPECT_COLOR_BIT);
     VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &_drawImage.imageView));
 
+    // 创建深度图像
+    _depthImage.imageFormat = VK_FORMAT_D32_SFLOAT;
+    _depthImage.imageExtent = imageExtent;
+    VkImageUsageFlags depthImageUsages = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+    
+    VkImageCreateInfo dimgInfo = vkinit::image_create_info(_depthImage.imageFormat, depthImageUsages, _depthImage.imageExtent);
+
+    // 分配深度图像
+    VK_CHECK(vmaCreateImage(_allocator, &dimgInfo, &allocationInfo,
+        &_depthImage.image, &_depthImage.allocation, nullptr));
+    
+    // 创建深度图像视图
+    VkImageViewCreateInfo dimgViewInfo = vkinit::imageview_create_info(_depthImage.imageFormat, _depthImage.image, VK_IMAGE_ASPECT_DEPTH_BIT);
+    VK_CHECK(vkCreateImageView(_device, &dimgViewInfo, nullptr, &_depthImage.imageView));
+
+
     // 添加图像销毁函数到删除队列
     _mainDeletionQueue.push_function([this]() {
         vkDestroyImageView(_device, _drawImage.imageView, nullptr);
         vmaDestroyImage(_allocator, _drawImage.image, _drawImage.allocation);
+
+        vkDestroyImageView(_device, _depthImage.imageView, nullptr);
+        vmaDestroyImage(_allocator, _depthImage.image, _depthImage.allocation);
     });
 }
 
@@ -508,15 +528,17 @@ void VulkanEngine::init_mesh_pipeline()
     builder.set_cull_mode(VK_CULL_MODE_NONE, VK_FRONT_FACE_CLOCKWISE);
     // 设置多重采样为无
     builder.set_multisampling_none();
-    // 禁用深度和模板测试
-    builder.disable_depth_stencil();
+    // // 禁用深度和模板测试
+    // builder.disable_depth_stencil();
+    // 启用深度测试
+    builder.enable_depth_test(true, VK_COMPARE_OP_GREATER_OR_EQUAL);
     // 禁用颜色混合
     builder.disable_blending();
 
     // 设置颜色附件格式
     builder.set_color_attachment_format(_drawImage.imageFormat);
     // 设置深度附件格式
-    builder.set_depth_attachment_format(VK_FORMAT_UNDEFINED);
+    builder.set_depth_attachment_format(_depthImage.imageFormat);
 
     // 构建管线
     _meshPipeline = builder.build_pipeline(_device);
@@ -746,6 +768,12 @@ void VulkanEngine::cleanup()
             vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
             vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
         }
+        
+        // 销毁网格数据
+        for (auto& mesh : _testMeshes) {
+            destroy_buffer(mesh->meshBuffers.indexBuffer);
+            destroy_buffer(mesh->meshBuffers.vertexBuffer);
+        }
 
         // 执行删除队列
         _mainDeletionQueue.flush();
@@ -803,6 +831,7 @@ void VulkanEngine::draw()
     
     // 将绘制图像从通用状态转换为颜色附件状态
     vkutil::transition_image_layout(cmd, _drawImage.image, VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    vkutil::transition_image_layout(cmd, _depthImage.image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
     
     // 绘制几何体
     draw_geometry(cmd);
@@ -889,17 +918,27 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 
 void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 {
+    // 设置视图矩阵，将相机移动到z轴负5的位置
+    glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
+    // 深度值为1时表示近平面，0时表示远平面，反转深度，提高深度精度
+    glm::mat4 projection = glm::perspective(glm::radians(70.0f), _drawImageExtent.width / static_cast<float>(_drawImageExtent.height), 10000.f, 0.1f);
+    // 反转y轴，vulkan中y轴向上，而glm中y轴向下
+    projection[1][1] *= -1;
+    
     // 设置颜色附件信息
     VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+    // 设置深度附件信息
+    VkRenderingAttachmentInfo depthAttachmentInfo = vkinit::attachment_info(_depthImage.imageView, nullptr, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 
     // 设置渲染信息
-    VkRenderingInfo renderingInfo = vkinit::rendering_info(_drawImageExtent, &colorAttachmentInfo, nullptr);
+    VkRenderingInfo renderingInfo = vkinit::rendering_info(_drawImageExtent, &colorAttachmentInfo, &depthAttachmentInfo);
     
     // 开始渲染
     vkCmdBeginRendering(cmd, &renderingInfo);
 
     // 绑定几何体管线
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
 
     // 设置viewport
     VkViewport viewport {};
@@ -918,12 +957,12 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     vkCmdSetScissor(cmd, 0, 1, &scissor);
 
     // 绘制三角形
-    vkCmdDraw(cmd, 3, 1, 0, 0);
+    // vkCmdDraw(cmd, 3, 1, 0, 0);
     
     vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
 
     GPUDrawPushConstants drawPushConstants;
-    drawPushConstants.worldMatrix = glm::mat4(1.0f);
+    drawPushConstants.worldMatrix = projection * view;
     // drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
     drawPushConstants.vertexBuffer = _testMeshes[2]->meshBuffers.vertexBufferAddress;
 

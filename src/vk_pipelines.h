@@ -79,6 +79,13 @@ public:
      * @brief 禁用深度和模板测试
      */
     void disable_depth_stencil();
+    
+    /**
+     * @brief 启用深度测试
+     * @param depthWriteEnable 是否启用深度写入
+     * @param compareOp 深度比较操作
+     */
+    void enable_depth_test(bool depthWriteEnable, VkCompareOp compareOp);
 
 public:
     std::vector<VkPipelineShaderStageCreateInfo> _shaderStages;

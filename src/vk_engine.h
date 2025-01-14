@@ -266,6 +266,8 @@ private:
 	AllocatedImage _drawImage;
 	// 分配的图像大小
 	VkExtent2D _drawImageExtent;
+	// 分配深度图像
+	AllocatedImage _depthImage;
 
 	// 描述符分配器
 	DescriptorAllocator _globalDescriptorAllocator;
