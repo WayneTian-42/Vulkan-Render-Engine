@@ -534,27 +534,29 @@ void VulkanEngine::init_mesh_pipeline()
 
 void VulkanEngine::init_default_data()
 {
-    // 创建顶点数据
-    std::array<Vertex, 4> rect_vertices;
+    // // 创建顶点数据
+    // std::array<Vertex, 4> rect_vertices;
 
-    rect_vertices[0].position = glm::vec3(0.5f, -0.5f, 0.0f);
-    rect_vertices[1].position = glm::vec3(0.5f, 0.5f, 0.0f);
-    rect_vertices[2].position = glm::vec3(-0.5f, -0.5f, 0.0f);
-    rect_vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
+    // rect_vertices[0].position = glm::vec3(0.5f, -0.5f, 0.0f);
+    // rect_vertices[1].position = glm::vec3(0.5f, 0.5f, 0.0f);
+    // rect_vertices[2].position = glm::vec3(-0.5f, -0.5f, 0.0f);
+    // rect_vertices[3].position = glm::vec3(-0.5f, 0.5f, 0.0f);
     
-    rect_vertices[0].color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-    rect_vertices[1].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
-    rect_vertices[2].color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
-    rect_vertices[3].color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
+    // rect_vertices[0].color = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+    // rect_vertices[1].color = glm::vec4(0.5f, 0.5f, 0.5f, 1.0f);
+    // rect_vertices[2].color = glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+    // rect_vertices[3].color = glm::vec4(0.0f, 1.0f, 0.0f, 1.0f);
     
-    std::array<uint32_t, 6> rect_indices = {0, 1, 2, 2, 1, 3};
+    // std::array<uint32_t, 6> rect_indices = {0, 1, 2, 2, 1, 3};
     
-    _meshBuffers = upload_mesh(rect_indices, rect_vertices);
+    // _meshBuffers = upload_mesh(rect_indices, rect_vertices);
     
-    _mainDeletionQueue.push_function([this]() {
-        destroy_buffer(_meshBuffers.indexBuffer);
-        destroy_buffer(_meshBuffers.vertexBuffer);
-    });
+    // _mainDeletionQueue.push_function([this]() {
+    //     destroy_buffer(_meshBuffers.indexBuffer);
+    //     destroy_buffer(_meshBuffers.vertexBuffer);
+    // });
+    
+    _testMeshes = load_gltf_files(this, "../assets/basicmesh.glb").value();
 }
 
 void VulkanEngine::init_imgui()
@@ -922,12 +924,14 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
     GPUDrawPushConstants drawPushConstants;
     drawPushConstants.worldMatrix = glm::mat4(1.0f);
-    drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
+    // drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
+    drawPushConstants.vertexBuffer = _testMeshes[2]->meshBuffers.vertexBufferAddress;
 
     vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
-    vkCmdBindIndexBuffer(cmd, _meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdBindIndexBuffer(cmd, _testMeshes[2]->meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
     
-    vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
+    vkCmdDrawIndexed(cmd, _testMeshes[2]->surfaces[0].indexCount, 1, 
+        _testMeshes[2]->surfaces[0].startIndex, 0, 0);
 
     // 结束渲染
     vkCmdEndRendering(cmd);

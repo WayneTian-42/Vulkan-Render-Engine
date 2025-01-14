@@ -5,6 +5,7 @@
 
 #include <vk_types.h>
 #include "vk_descriptors.h"
+#include "vk_loader.h"
 
 // 删除队列，用于管理资源的生命周期
 struct DeletionQueue
@@ -111,6 +112,14 @@ public:
 	 * @param function 函数
 	 */
 	void immediate_submit(std::function<void(VkCommandBuffer cmd)>&& function);
+	
+	/**
+	 * @brief 创建网格并上传到GPU
+	 * @param indices 索引
+	 * @param vertices 顶点
+	 * @return GPUMeshBuffers 网格缓冲区
+	 */
+	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 private:
 	/**
@@ -193,14 +202,6 @@ private:
 	 * @param buffer 缓冲区
 	 */
 	void destroy_buffer(const AllocatedBuffer& buffer);
-	
-	/**
-	 * @brief 创建网格并上传到GPU
-	 * @param indices 索引
-	 * @param vertices 顶点
-	 * @return GPUMeshBuffers 网格缓冲区
-	 */
-	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
 
 	/**
 	 * @brief 绘制背景
@@ -304,4 +305,6 @@ private:
 	VkPipelineLayout _meshPipelineLayout;
 	// 网格数据
 	GPUMeshBuffers _meshBuffers;
+	// 几何体集合
+	std::vector<std::shared_ptr<MeshAsset>> _testMeshes;
 };
