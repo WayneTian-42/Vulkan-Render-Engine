@@ -271,36 +271,47 @@ void VulkanEngine::init_descriptors()
         _drawImageDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_COMPUTE_BIT);
     }
 
+    // 创建场景数据描述符集布局
+    {
+        DescriptorLayoutBuilder builder;
+        builder.add_binding(0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+        _sceneDataDescriptorLayout = builder.build(_device, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    }
+
     // 分配描述符集
     _drawImageDescriptors = _globalDescriptorAllocator.allocate(_device, _drawImageDescriptorLayout);
 
-    // 描述符关联的图像信息
-    VkDescriptorImageInfo imgInfo{};
-    imgInfo.imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-    imgInfo.imageView = _drawImage.imageView;
+    // 通过抽象描述符写入器，将图像信息写入描述符集，减少代码冗余
+    DescriptorWriter writer;
+    writer.write_image(0, _drawImage.imageView, VK_NULL_HANDLE, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+    writer.update_set(_device, _drawImageDescriptors);
 
-    // 准备描述符写入操作
-    VkWriteDescriptorSet drawImageWrite{
-        .sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-        .pNext = nullptr,
-    };
+    for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+        // 创建描述符池
+        std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> frameSizes = {
+            { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 3 },
+            { VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 3 },
+            { VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 3 },
+            { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 4 },
+        };
 
-    drawImageWrite.dstBinding = 0;
-    // 目标描述符集，用于指定要更新的描述符集
-    drawImageWrite.dstSet = _drawImageDescriptors;
-    drawImageWrite.descriptorCount = 1;
-    drawImageWrite.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
-    // 描述符关联的图像信息，将图像信息写入描述符集
-    drawImageWrite.pImageInfo = &imgInfo;
+        // 创建描述符分配器
+        _frames[i]._frameDescriptorAllocator = DescriptorAllocatorGrowable{};
+        _frames[i]._frameDescriptorAllocator.init(_device, 10, frameSizes);
 
-    // 更新描述符集
-    vkUpdateDescriptorSets(_device, 1, &drawImageWrite, 0, nullptr);
+        // 添加销毁函数到删除队列
+        _mainDeletionQueue.push_function([this, i]() {
+            _frames[i]._frameDescriptorAllocator.destroy_pool(_device);
+        });
+    }
 
     _mainDeletionQueue.push_function([this]() {
         _globalDescriptorAllocator.destroy_pool(_device);
 
         vkDestroyDescriptorSetLayout(_device, _drawImageDescriptorLayout, nullptr);
+        vkDestroyDescriptorSetLayout(_device, _sceneDataDescriptorLayout, nullptr);
     });
+
 }
 
 void VulkanEngine::create_swapchain(uint32_t width, uint32_t height)
@@ -762,6 +773,11 @@ void VulkanEngine::cleanup()
 
         // 销毁command pool
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
+            // 执行删除队列
+            // 有可能在渲染过程中停止运行，导致每一帧的删除队列没有执行，比如在draw_geometry中，创建了uniform buffer
+            // 然而，在下一帧时，程序停止运行，导致上一帧的uniform buffer没有销毁，造成内存泄漏
+            _frames[i]._deletionQueue.flush();
+
             // 销毁command pool
             vkDestroyCommandPool(_device, _frames[i]._commandPool, nullptr);
 
@@ -803,6 +819,8 @@ void VulkanEngine::draw()
 
     // 执行删除队列
     get_current_frame()._deletionQueue.flush();
+    // 清空当前帧的描述符池
+    get_current_frame()._frameDescriptorAllocator.clear_pools(_device);
 
     // 重置栅栏
     VK_CHECK(vkResetFences(_device, 1, &get_current_frame()._renderFence));
@@ -927,6 +945,28 @@ void VulkanEngine::draw_background(VkCommandBuffer cmd)
 
 void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 {
+    // 动态分配描述符集
+    //todo: 将每一帧的描述符池缓存起来，避免每次都重新分配
+
+    // 创建新的uniform buffer
+    AllocatedBuffer uniformBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    // 添加销毁函数到删除队列
+    get_current_frame()._deletionQueue.push_function([=, this]() {
+        destroy_buffer(uniformBuffer);
+    });
+
+    // 写入uniform buffer
+    // 由于uniform buffer比较小，直接使用CPU写入，不采用staging buffer的逻辑进行拷贝
+    GPUSceneData* sceneUniformData = static_cast<GPUSceneData*>(uniformBuffer.allocation->GetMappedData());
+    *sceneUniformData = _sceneData;
+
+    // 创建uniform buffer描述符
+    VkDescriptorSet sceneDataSet = get_current_frame()._frameDescriptorAllocator.allocate(_device, _sceneDataDescriptorLayout);
+    DescriptorWriter writer;
+    writer.write_buffer(0, uniformBuffer.buffer, 0, sizeof(GPUSceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
+    writer.update_set(_device, sceneDataSet);
+
     // 设置视图矩阵，将相机移动到z轴负5的位置
     glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
     // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1

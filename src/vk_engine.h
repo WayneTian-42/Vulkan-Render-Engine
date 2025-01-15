@@ -45,6 +45,18 @@ struct FrameData
 	VkFence _renderFence;
 	// 添加删除队列，用于管理资源的生命周期
 	DeletionQueue _deletionQueue;
+
+	// 添加描述符分配器，用于管理描述符集的生命周期
+	DescriptorAllocatorGrowable _frameDescriptorAllocator;
+};
+
+struct GPUSceneData {
+	glm::mat4 view;	
+	glm::mat4 proj;
+	glm::mat4 viewProj;
+	glm::vec4 ambientColor;
+	glm::vec4 lightDirection;
+	glm::vec4 lightColor;
 };
 
 // 计算管线常量
@@ -281,6 +293,11 @@ private:
 	VkDescriptorSet _drawImageDescriptors;
 	// 描述符集布局
 	VkDescriptorSetLayout _drawImageDescriptorLayout;
+
+	// 场景数据
+	GPUSceneData _sceneData;
+	// 场景数据描述符集布局
+	VkDescriptorSetLayout _sceneDataDescriptorLayout;
 
 	// imgui 相关
 	// 栅栏	
