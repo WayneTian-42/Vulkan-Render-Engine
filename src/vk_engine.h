@@ -208,12 +208,39 @@ private:
 	 * @return AllocatedBuffer 缓冲区
 	 */
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+
+	/**
+	 * @brief 创建图像，只分配内存
+	 * @param extent 图像大小
+	 * @param format 图像格式
+	 * @param usage 图像使用标志
+	 * @param mipmapped 是否启用mipmap
+	 * @return AllocatedImage 图像
+	 */
+	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+
+	/**
+	 * @brief 创建图像，并拷贝数据到图像中
+	 * @param data 图像数据
+	 * @param extent 图像大小
+	 * @param format 图像格式
+	 * @param usage 图像使用标志
+	 * @param mipmapped 是否启用mipmap
+	 * @return AllocatedImage 图像
+	 */
+	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
 	
 	/**
 	 * @brief 销毁缓冲区
 	 * @param buffer 缓冲区
 	 */
 	void destroy_buffer(const AllocatedBuffer& buffer);
+
+	/**
+	 * @brief 销毁图像
+	 * @param image 图像
+	 */
+	void destroy_image(const AllocatedImage& image);
 
 	/**
 	 * @brief 绘制背景
@@ -336,4 +363,21 @@ private:
 	GPUMeshBuffers _meshBuffers;
 	// 几何体集合
 	std::vector<std::shared_ptr<MeshAsset>> _testMeshes;
+
+	// 白色图像
+	AllocatedImage _whiteImage;
+	// 黑色图像
+	AllocatedImage _blackImage;
+	// 灰色图像
+	AllocatedImage _greyImage;
+	// 错误棋盘图像
+	AllocatedImage _errorCheckerboardImage;
+
+	// 默认线性采样器
+	VkSampler _defaultSamplerLinear;
+	// 默认最近邻采样器
+	VkSampler _defaultSamplerNearest;
+
+	// 单个图像描述符集布局	
+	VkDescriptorSetLayout _singleImageDescriptorLayout;
 };
