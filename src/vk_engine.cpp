@@ -336,28 +336,6 @@ void VulkanEngine::init_pipelines()
 
     _metalRoughnessMaterial.build_pipelines(this);
 
-    GLTFMetallicRoughness::MaterialResources resources;
-    resources.colorImage = _whiteImage;
-    resources.colorSampler = _defaultSamplerLinear;
-    resources.metallicRoughnessImage = _whiteImage;
-    resources.metallicRoughnessSampler = _defaultSamplerLinear;
-
-    // 创建ubo
-    AllocatedBuffer materialbuffer = create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
-
-    GLTFMetallicRoughness::MaterialConstants* sceneUniformData = static_cast<GLTFMetallicRoughness::MaterialConstants*>(materialbuffer.allocation->GetMappedData());
-    sceneUniformData->colorFactors = glm::vec4(1.f);
-    sceneUniformData->metalRoughFactors = glm::vec4(1.f, 0.5f,0.f, 0.f);
-
-    resources.materialBuffer = materialbuffer.buffer;
-    resources.materialOffset = 0;
-
-    _defaultInstance = _metalRoughnessMaterial.create_material_instance(_device, MaterialPass::MainColor, resources, *sceneUniformData, _globalDescriptorAllocator);
-
-    _mainDeletionQueue.push_function([this, materialbuffer]() {
-        destroy_buffer(materialbuffer);
-        _metalRoughnessMaterial.clear_resources(_device);
-    });
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -606,8 +584,6 @@ void VulkanEngine::init_default_data()
         destroy_buffer(_meshBuffers.vertexBuffer);
     });
     
-    _testMeshes = load_gltf_files(this, "../assets/basicmesh.glb").value();
-
     // 创建默认纹理
     // 创建白色纹理
     uint32_t white_image_data = glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
@@ -659,6 +635,50 @@ void VulkanEngine::init_default_data()
         destroy_image(_greyImage);
         destroy_image(_errorCheckerboardImage);
     });
+
+    GLTFMetallicRoughness::MaterialResources resources;
+    resources.colorImage = _whiteImage;
+    resources.colorSampler = _defaultSamplerLinear;
+    resources.metallicRoughnessImage = _whiteImage;
+    resources.metallicRoughnessSampler = _defaultSamplerLinear;
+
+    // 创建ubo
+    AllocatedBuffer materialbuffer = create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    GLTFMetallicRoughness::MaterialConstants* sceneUniformData = static_cast<GLTFMetallicRoughness::MaterialConstants*>(materialbuffer.allocation->GetMappedData());
+    sceneUniformData->colorFactors = glm::vec4(1.f);
+    sceneUniformData->metalRoughFactors = glm::vec4(1.f, 0.5f,0.f, 0.f);
+
+    resources.materialBuffer = materialbuffer.buffer;
+    resources.materialOffset = 0;
+
+    _defaultInstance = _metalRoughnessMaterial.create_material_instance(_device, MaterialPass::MainColor, resources, *sceneUniformData, _globalDescriptorAllocator);
+
+    _mainDeletionQueue.push_function([this, materialbuffer]() {
+        destroy_buffer(materialbuffer);
+        _metalRoughnessMaterial.clear_resources(_device);
+    });
+
+    // 加载gltf文件
+    _testMeshes = load_gltf_files(this, "../assets/basicmesh.glb").value();
+
+    // 创建mesh节点
+    for (auto& mesh : _testMeshes) {
+        // 创建mesh节点，暂时只是将mesh拷贝到meshNode中
+        std::shared_ptr<MeshNode> newMeshNode = std::make_shared<MeshNode>();
+        newMeshNode->mesh = mesh;
+
+        newMeshNode->localTransform = glm::mat4(1.0f);
+        newMeshNode->worldTransform = glm::mat4(1.0f);
+
+        // 为mesh的每个surface创建material
+        for (auto& surface : newMeshNode->mesh->surfaces) {
+            surface.material = std::make_shared<GLTFMaterial>(_defaultInstance);
+        };
+
+        // 将mesh节点添加到_localNodes中，这里利用了多态，将meshNode当作Node添加到_localNodes中
+        _loadedNodes[mesh->name] = newMeshNode;
+    }
 }
 
 void VulkanEngine::init_imgui()
@@ -968,8 +988,38 @@ void VulkanEngine::cleanup()
     loadedEngine = nullptr;
 }
 
+void VulkanEngine::update_scene()
+{
+    _drawContext.opaqueSurfaces.clear();
+
+    _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
+
+    // 设置视图矩阵，将相机移动到z轴负5的位置
+    _sceneData.view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
+    // 深度值为1时表示近平面，0时表示远平面，反转深度，提高深度精度
+    _sceneData.proj= glm::perspective(glm::radians(70.0f), _drawImageExtent.width / static_cast<float>(_drawImageExtent.height), 10000.f, 0.1f);
+
+    // 反转y轴，vulkan中y轴向上，而glm中y轴向下
+    _sceneData.proj[1][1] *= -1;
+    _sceneData.viewProj = _sceneData.proj * _sceneData.view;
+
+    // 默认光源属性
+    _sceneData.lightColor = glm::vec4(1.f);
+    _sceneData.ambientColor = glm::vec4(0.1f);
+    _sceneData.lightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+
+    for (int x = -3; x < 3; ++x) {
+        glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
+        glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{x, 1.0f, 0.0f});
+
+        _loadedNodes["Cube"]->draw(translate * scale, _drawContext);
+    }
+}
+
 void VulkanEngine::draw()
 {
+    update_scene();
     // 等待栅栏发出信号
     VK_CHECK(vkWaitForFences(_device, 1, &get_current_frame()._renderFence, VK_TRUE, static_cast<uint64_t>(1e9)));
 
@@ -1123,14 +1173,6 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     writer.write_buffer(0, uniformBuffer.buffer, 0, sizeof(GPUSceneData), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     writer.update_set(_device, sceneDataSet);
 
-    // 设置视图矩阵，将相机移动到z轴负5的位置
-    glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
-    // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
-    // 深度值为1时表示近平面，0时表示远平面，反转深度，提高深度精度
-    glm::mat4 projection = glm::perspective(glm::radians(70.0f), _drawImageExtent.width / static_cast<float>(_drawImageExtent.height), 10000.f, 0.1f);
-    // 反转y轴，vulkan中y轴向上，而glm中y轴向下
-    projection[1][1] *= -1;
-    
     // 注意，二者初始化调用的函数接口不同，深度附件需要使用vkinit::depth_attachment_info
     // 设置颜色附件信息
     VkRenderingAttachmentInfo colorAttachmentInfo = vkinit::attachment_info(_drawImage.imageView, nullptr, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
@@ -1165,38 +1207,27 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     // 绘制三角形
     // vkCmdDraw(cmd, 3, 1, 0, 0);
     
-    vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipeline);
+    for (const auto& draw : _drawContext.opaqueSurfaces) {
+        // 绑定几何体管线
+        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
+        
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipelineLayout, 
+            0, 1, &sceneDataSet, 0, nullptr);
+        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipelineLayout,
+            1, 1, &draw.material->materialSet, 0, nullptr);
 
-    // 创建图像描述符集
-    VkDescriptorSet imageSet = get_current_frame()._frameDescriptorAllocator.allocate(_device, _singleImageDescriptorLayout);
-    // 写入图像描述符
-    {
-        DescriptorWriter writer;
-        writer.write_image(0, _errorCheckerboardImage.imageView, _defaultSamplerNearest, 
-            VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        writer.update_set(_device, imageSet);
+        // 绑定索引缓冲区
+        vkCmdBindIndexBuffer(cmd, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+
+        GPUDrawPushConstants drawPushConstants;
+        drawPushConstants.worldMatrix = draw.transform;
+        drawPushConstants.vertexBuffer = draw.vertexBufferAddress;
+        vkCmdPushConstants(cmd, draw.material->pipeline->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+            sizeof(GPUDrawPushConstants), &drawPushConstants);
+
+        // 绘制几何体
+        vkCmdDrawIndexed(cmd, draw.indexCount, 1, draw.firstIndex, 0, 0);
     }
-
-    // 绑定图像描述符集
-    vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _meshPipelineLayout, 0, 1, &imageSet, 0, nullptr);
-
-    GPUDrawPushConstants drawPushConstants;
-    drawPushConstants.worldMatrix = glm::mat4(1.0f);
-    drawPushConstants.vertexBuffer = _meshBuffers.vertexBufferAddress;
-    
-    // vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
-    // vkCmdBindIndexBuffer(cmd, _meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-    
-    // vkCmdDrawIndexed(cmd, 6, 1, 0, 0, 0);
-    
-    drawPushConstants.worldMatrix = projection * view;
-    drawPushConstants.vertexBuffer = _testMeshes[2]->meshBuffers.vertexBufferAddress;
-
-    vkCmdPushConstants(cmd, _meshPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(GPUDrawPushConstants), &drawPushConstants);
-    vkCmdBindIndexBuffer(cmd, _testMeshes[2]->meshBuffers.indexBuffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-
-    vkCmdDrawIndexed(cmd, _testMeshes[2]->surfaces[0].indexCount, 1, 
-        _testMeshes[2]->surfaces[0].startIndex, 0, 0);
 
     // 结束渲染
     vkCmdEndRendering(cmd);

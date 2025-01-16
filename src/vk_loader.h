@@ -1,14 +1,20 @@
 ﻿#pragma once
 
 #include "vk_types.h"
+#include "vk_materials.h"
 
 #include <unordered_map>
 #include <filesystem>
+
+struct GLTFMaterial {
+    MaterialInstance data;
+};
 
 // 几何体表面
 struct GeoSurface {
     uint32_t startIndex;
     uint32_t indexCount;
+    std::shared_ptr<GLTFMaterial> material;
 };
 
 // 几何体

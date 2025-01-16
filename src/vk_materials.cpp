@@ -107,6 +107,8 @@ MaterialInstance GLTFMetallicRoughness::create_material_instance(VkDevice device
     materialWriter.write_buffer(0, resources.materialBuffer, resources.materialOffset, sizeof(MaterialConstants), VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
     materialWriter.write_image(1, resources.colorImage.imageView, resources.colorSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     materialWriter.write_image(2, resources.metallicRoughnessImage.imageView, resources.metallicRoughnessSampler, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
+    // 更新材质描述符集
+    materialWriter.update_set(device, instance.materialSet);
 
     return instance;
 }

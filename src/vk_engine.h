@@ -7,6 +7,7 @@
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "vk_materials.h"
+#include "vk_render_object.h"
 
 // 删除队列，用于管理资源的生命周期
 struct DeletionQueue
@@ -291,6 +292,11 @@ private:
 	 */
 	void resize_swapchain();
 
+	/**
+	 * @brief 更新场景
+	 */
+	void update_scene();
+
 private:
 	// vulkan 对象
 	VkInstance _instance;
@@ -411,4 +417,9 @@ private:
 	GLTFMetallicRoughness _metalRoughnessMaterial;
 	// 默认材质实例，用于绘制物体
 	MaterialInstance _defaultInstance;
+
+	// 渲染上下文
+	DrawContext _drawContext;
+	// 加载的节点
+	std::unordered_map<std::string, std::shared_ptr<Node>> _loadedNodes;
 };

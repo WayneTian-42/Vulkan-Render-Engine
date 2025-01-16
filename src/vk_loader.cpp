@@ -138,7 +138,7 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_files(VulkanEng
             newMesh.surfaces.push_back(surface);
         }
         // 调试选项：将法线显示为颜色
-        constexpr bool ShowNormals = true;
+        constexpr bool ShowNormals = false;
         if (ShowNormals) {
             for (auto& vtx : vertices) {
                 vtx.color = glm::vec4(vtx.normal, 1.f);
