@@ -65,6 +65,8 @@ void VulkanEngine::init()
 
     // everything went fine
     _isInitialized = true;
+
+    _mainCamera.set_position(glm::vec3(0.0f, 0.0f, 5.0f));
 }
 
 void VulkanEngine::init_vulkan()
@@ -992,10 +994,18 @@ void VulkanEngine::update_scene()
 {
     _drawContext.opaqueSurfaces.clear();
 
+    // 计算时间差，单位是毫秒
+    auto currentTime = std::chrono::steady_clock::now();
+    float deltaTime = std::chrono::duration_cast<std::chrono::duration<float>>(currentTime - _lastTime).count() * 1000.f;
+    _lastTime = currentTime;
+
+    // 更新相机
+    _mainCamera.update(deltaTime);
+
     _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
 
     // 设置视图矩阵，将相机移动到z轴负5的位置
-    _sceneData.view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -5.0f));
+    _sceneData.view = _mainCamera.get_view_matrix();
     // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
     // 深度值为1时表示近平面，0时表示远平面，反转深度，提高深度精度
     _sceneData.proj= glm::perspective(glm::radians(70.0f), _drawImageExtent.width / static_cast<float>(_drawImageExtent.height), 10000.f, 0.1f);
@@ -1303,6 +1313,9 @@ void VulkanEngine::run()
                     stop_rendering = false;
                 }
             }
+
+            // 处理相机输入
+            _mainCamera.process_input(e);
 
             // 处理imgui事件
             ImGui_ImplSDL2_ProcessEvent(&e);

@@ -8,6 +8,7 @@
 #include "vk_loader.h"
 #include "vk_materials.h"
 #include "vk_render_object.h"
+#include "camera.h"
 
 // 删除队列，用于管理资源的生命周期
 struct DeletionQueue
@@ -422,4 +423,9 @@ private:
 	DrawContext _drawContext;
 	// 加载的节点
 	std::unordered_map<std::string, std::shared_ptr<Node>> _loadedNodes;
+
+	// 相机
+	Camera _mainCamera;
+	// 上次更新时间
+	std::chrono::steady_clock::time_point _lastTime;
 };
