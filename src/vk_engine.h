@@ -6,6 +6,7 @@
 #include <vk_types.h>
 #include "vk_descriptors.h"
 #include "vk_loader.h"
+#include "vk_materials.h"
 
 // 删除队列，用于管理资源的生命周期
 struct DeletionQueue
@@ -132,6 +133,30 @@ public:
 	 * @return GPUMeshBuffers 网格缓冲区
 	 */
 	GPUMeshBuffers upload_mesh(std::span<uint32_t> indices, std::span<Vertex> vertices);
+
+	/**
+	 * @brief 获取设备
+	 * @return VkDevice 设备
+	 */
+	VkDevice get_device() const { return _device; }
+
+	/**
+	 * @brief 获取场景数据描述符集布局
+	 * @return VkDescriptorSetLayout 场景数据描述符集布局
+	 */
+	VkDescriptorSetLayout get_scene_set_layout() const { return _sceneDataDescriptorLayout; }
+
+	/**
+	 * @brief 获取绘制图像格式
+	 * @return VkFormat 绘制图像格式
+	 */
+	VkFormat get_draw_image_format() const { return _drawImage.imageFormat;}
+
+	/**
+	 * @brief 获取深度图像格式
+	 * @return VkFormat 深度图像格式
+	 */
+	VkFormat get_depth_image_format() const { return _depthImage.imageFormat; }
 
 private:
 	/**
@@ -314,7 +339,7 @@ private:
 	AllocatedImage _depthImage;
 
 	// 描述符分配器
-	DescriptorAllocator _globalDescriptorAllocator;
+	DescriptorAllocatorGrowable _globalDescriptorAllocator;
 
 	// 描述符集
 	VkDescriptorSet _drawImageDescriptors;
@@ -380,4 +405,10 @@ private:
 
 	// 单个图像描述符集布局	
 	VkDescriptorSetLayout _singleImageDescriptorLayout;
+
+	// 材质
+	// 具有金属度和粗糙度的材质
+	GLTFMetallicRoughness _metalRoughnessMaterial;
+	// 默认材质实例，用于绘制物体
+	MaterialInstance _defaultInstance;
 };

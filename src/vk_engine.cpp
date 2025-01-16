@@ -237,12 +237,12 @@ void VulkanEngine::init_sync_structures()
 void VulkanEngine::init_descriptors()
 {
     // 初始化描述符池的不同类型所占比例
-    std::vector<DescriptorAllocator::PoolSizeRatio> sizes = {
+    std::vector<DescriptorAllocatorGrowable::PoolSizeRatio> sizes = {
         { VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, 1 },
     };
 
     // 创建全局描述符池
-    _globalDescriptorAllocator.init_pool(_device, 10, sizes);
+    _globalDescriptorAllocator.init(_device, 10, sizes);
 
     // 创建描述符集布局，将其放在单独的作用域中，以便在创建描述符集后销毁
     {
@@ -333,6 +333,31 @@ void VulkanEngine::init_pipelines()
     init_background_pipelines();
     init_triangle_pipeline();
     init_mesh_pipeline();
+
+    _metalRoughnessMaterial.build_pipelines(this);
+
+    GLTFMetallicRoughness::MaterialResources resources;
+    resources.colorImage = _whiteImage;
+    resources.colorSampler = _defaultSamplerLinear;
+    resources.metallicRoughnessImage = _whiteImage;
+    resources.metallicRoughnessSampler = _defaultSamplerLinear;
+
+    // 创建ubo
+    AllocatedBuffer materialbuffer = create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+
+    GLTFMetallicRoughness::MaterialConstants* sceneUniformData = static_cast<GLTFMetallicRoughness::MaterialConstants*>(materialbuffer.allocation->GetMappedData());
+    sceneUniformData->colorFactors = glm::vec4(1.f);
+    sceneUniformData->metalRoughFactors = glm::vec4(1.f, 0.5f,0.f, 0.f);
+
+    resources.materialBuffer = materialbuffer.buffer;
+    resources.materialOffset = 0;
+
+    _defaultInstance = _metalRoughnessMaterial.create_material_instance(_device, MaterialPass::MainColor, resources, *sceneUniformData, _globalDescriptorAllocator);
+
+    _mainDeletionQueue.push_function([this, materialbuffer]() {
+        destroy_buffer(materialbuffer);
+        _metalRoughnessMaterial.clear_resources(_device);
+    });
 }
 
 void VulkanEngine::init_background_pipelines()
