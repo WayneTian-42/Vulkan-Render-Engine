@@ -66,7 +66,8 @@ void VulkanEngine::init()
     // everything went fine
     _isInitialized = true;
 
-    _mainCamera.set_position(glm::vec3(30.0f, 0.0f, -85.0f));
+    _mainCamera.set_position(glm::vec3(30.f, -00.f, -085.f));
+    // _mainCamera.set_position(glm::vec3(0.0f, 0.0f, 5.0f));
 }
 
 void VulkanEngine::init_vulkan()
@@ -661,25 +662,25 @@ void VulkanEngine::init_default_data()
         _metalRoughnessMaterial.clear_resources(_device);
     });
 
-    // _testMeshes = load_gltf_meshes(this, "../assets/basicmesh.glb").value();
+    _testMeshes = load_gltf_meshes(this, "../assets/basicmesh.glb").value();
 
-    // // 创建mesh节点
-    // for (auto& mesh : _testMeshes) {
-    //     // 创建mesh节点，暂时只是将mesh拷贝到meshNode中
-    //     std::shared_ptr<MeshNode> newMeshNode = std::make_shared<MeshNode>();
-    //     newMeshNode->mesh = mesh;
+    // 创建mesh节点
+    for (auto& mesh : _testMeshes) {
+        // 创建mesh节点，暂时只是将mesh拷贝到meshNode中
+        std::shared_ptr<MeshNode> newMeshNode = std::make_shared<MeshNode>();
+        newMeshNode->mesh = mesh;
 
-    //     newMeshNode->localTransform = glm::mat4(1.0f);
-    //     newMeshNode->worldTransform = glm::mat4(1.0f);
+        newMeshNode->localTransform = glm::mat4(1.0f);
+        newMeshNode->worldTransform = glm::mat4(1.0f);
 
-    //     // 为mesh的每个surface创建material
-    //     for (auto& surface : newMeshNode->mesh->surfaces) {
-    //         surface.material = std::make_shared<GLTFMaterial>(_defaultInstance);
-    //     };
+        // 为mesh的每个surface创建material
+        for (auto& surface : newMeshNode->mesh->surfaces) {
+            surface.material = std::make_shared<GLTFMaterial>(_defaultInstance);
+        };
 
-    //     // 将mesh节点添加到_localNodes中，这里利用了多态，将meshNode当作Node添加到_localNodes中
-    //     _loadedNodes[mesh->name] = newMeshNode;
-    // }
+        // 将mesh节点添加到_localNodes中，这里利用了多态，将meshNode当作Node添加到_localNodes中
+        _loadedNodes[mesh->name] = newMeshNode;
+    }
 
     // 加载gltf文件
     std::string gltfPath = "../assets/structure.glb";
@@ -957,6 +958,9 @@ void VulkanEngine::cleanup()
         // GPU等待
         vkDeviceWaitIdle(_device);
 
+        // 销毁gltf模型
+        _loadedGLTFs.clear();
+
         // 销毁command pool
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             // 执行删除队列
@@ -972,12 +976,17 @@ void VulkanEngine::cleanup()
             vkDestroySemaphore(_device, _frames[i]._swapchainSemaphore, nullptr);
             vkDestroySemaphore(_device, _frames[i]._renderSemaphore, nullptr);
         }
-        
+
         // 销毁网格数据
         for (auto& mesh : _testMeshes) {
             destroy_buffer(mesh->meshBuffers.indexBuffer);
             destroy_buffer(mesh->meshBuffers.vertexBuffer);
         }
+
+        // // 销毁gltf模型
+        // for (auto& [k, v] : _loadedGLTFs) {
+        //     v->clear_all();
+        // }
 
         // 执行删除队列
         _mainDeletionQueue.flush();
@@ -1014,10 +1023,9 @@ void VulkanEngine::update_scene()
     _drawImageExtent.width = static_cast<uint32_t>(std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * _renderScale);
     _drawImageExtent.height = static_cast<uint32_t>(std::min(_swapchainExtent.height, _drawImage.imageExtent.height) * _renderScale);
 
-    // _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
+    _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
     _loadedGLTFs["structure"]->draw(glm::mat4(1.0f), _drawContext);
 
-    // 设置视图矩阵，将相机移动到z轴负5的位置
     _sceneData.view = _mainCamera.get_view_matrix();
     // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
     // 深度值为1时表示近平面，0时表示远平面，反转深度，提高深度精度
@@ -1032,12 +1040,12 @@ void VulkanEngine::update_scene()
     _sceneData.ambientColor = glm::vec4(0.1f);
     _sceneData.lightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
 
-    // for (int x = -3; x < 3; ++x) {
-    //     glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
-    //     glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{x, 1.0f, 0.0f});
+    for (int x = -3; x < 3; ++x) {
+        glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
+        glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{x, 1.0f, 0.0f});
 
-    //     _loadedNodes["Cube"]->draw(translate * scale, _drawContext);
-    // }
+        _loadedNodes["Cube"]->draw(translate * scale, _drawContext);
+    }
 }
 
 void VulkanEngine::draw()

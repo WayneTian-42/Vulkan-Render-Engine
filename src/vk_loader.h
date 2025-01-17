@@ -3,6 +3,7 @@
 #include "vk_types.h"
 #include "vk_materials.h"
 
+#include <fastgltf/types.hpp>
 #include <unordered_map>
 #include <filesystem>
 
@@ -93,7 +94,8 @@ class VulkanEngine;
 struct LoadedGLTF : public IRenderable {
     std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
     std::unordered_map<std::string, std::shared_ptr<Node>> nodes;
-    std::unordered_map<std::string, std::shared_ptr<AllocatedImage>> images;
+    // std::unordered_map<std::string, std::shared_ptr<AllocatedImage>> images;
+    std::unordered_map<std::string, AllocatedImage> images;
     std::unordered_map<std::string, std::shared_ptr<GLTFMaterial>> materials;
 
     std::vector<std::shared_ptr<Node>> rootNodes;
@@ -104,7 +106,10 @@ struct LoadedGLTF : public IRenderable {
 
     AllocatedBuffer sceneUniformBuffer;
 
-    std::shared_ptr<VulkanEngine> engine;
+    // todo: 使用shared_ptr或者weak_ptr时出现问题
+    // 使用shared_ptr时，会出现循环引用，导致无法释放资源
+    // 使用weak_ptr时，初始化时程序崩溃
+    VulkanEngine* engine;
 
 public:
 
@@ -143,3 +148,12 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_meshes(VulkanEn
  * @return 加载的gltf模型或者空
  */
 std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine, std::string_view path);
+
+/**
+ * @brief 加载GLTF图片
+ * @param engine 引擎
+ * @param asset gltf模型
+ * @param image 图片
+ * @return 加载的图片或者空
+ */
+std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image);

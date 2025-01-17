@@ -1,6 +1,5 @@
 ﻿#include "vk_loader.h"
 
-#include <stb_image.h>
 #include <iostream>
 
 #include <vk_mem_alloc.h>
@@ -14,6 +13,9 @@
 #include <fastgltf/parser.hpp>
 #include <fastgltf/tools.hpp>
 #include <glm/gtc/type_ptr.hpp>
+
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
 
 /**
  * @brief 根据gltf过滤器提取vk过滤器
@@ -209,7 +211,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
     fmt::println("Loading GLTF: {}", filePath);
 
     std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
-    scene->engine = std::shared_ptr<VulkanEngine>(engine);
+    scene->engine = engine;
     auto& gltf = *(scene.get());
 
     // 创建GLTF数据缓冲区并加载文件内容
@@ -288,13 +290,27 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
     // 创建临时存储资产的容器
     std::vector<std::shared_ptr<MeshAsset>> meshes;
     std::vector<std::shared_ptr<Node>> nodes;
-    std::vector<std::shared_ptr<AllocatedImage>> images;
+    // std::vector<std::shared_ptr<AllocatedImage>> images;
+    std::vector<AllocatedImage> images;
     std::vector<std::shared_ptr<GLTFMaterial>> materials;
 
     // 加载图像，用于纹理绘制
     for (auto& image : asset.images) {
-        // 暂时采用错误棋盘图像当作默认图像
-        images.push_back(std::make_shared<AllocatedImage>(engine->get_error_image()));
+        auto img = load_gltf_image(engine, asset, image);
+
+        if (img.has_value()) {
+            // images.push_back(std::make_shared<AllocatedImage>(img.value()));
+            // gltf.images[static_cast<std::string>(image.name)] = std::make_shared<AllocatedImage>(img.value());
+            images.push_back(img.value());
+            gltf.images[static_cast<std::string>(image.name)] = img.value();
+        } else {
+            // 暂时采用错误棋盘图像当作默认图像
+            // images.push_back(std::make_shared<AllocatedImage>(engine->get_error_image()));
+            images.push_back(engine->get_error_image());
+            // 输出错误信息
+            fmt::println("Failed to load image: {}", image.name);
+            // std::cout << "Failed to load image: " << image.name << std::endl;
+        }
     }
 
     // 创建buffer存储材质数据
@@ -344,7 +360,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
             size_t imageIndex = asset.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
             size_t samplerIndex = asset.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
 
-            materialResources.colorImage = *(images[imageIndex]);
+            // materialResources.colorImage = *(images[imageIndex]);
+            materialResources.colorImage = images[imageIndex];
             materialResources.colorSampler = gltf.samplers[samplerIndex];
         }
         // 创建材质实例
@@ -387,9 +404,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
                 indices.reserve(indices.size() + indexAccessor.count);
 
                 // 遍历访问器中的索引数据
-                fastgltf::iterateAccessor<std::uint32_t>(asset, indexAccessor, [&](std::uint32_t index) {
-                    indices.push_back(index);
-                });
+                fastgltf::iterateAccessor<std::uint32_t>(asset, indexAccessor, 
+                    [&](std::uint32_t index) {
+                        indices.push_back(index + initial_vtx);
+                    });
             }
 
             // 加载顶点位置数据
@@ -477,26 +495,28 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
         // 这里需要访问的是node的transform成员，该成员是一个variant类型，可以存储TransformMatrix和TRS两种类型
         // 定义的访问器根据不同的类型执行不同的操作，如果类型是TransformMatrix，则将matrix复制到newNode的localTransform成员中
         // 如果类型是TRS，则将translation、rotation和scale转换为glm::mat4，并计算出transformMatrix
-        std::visit(fastgltf::visitor {
-                    // 如果类型是TransformMatrix，则将matrix复制到newNode的localTransform成员中
-                    [newNode](fastgltf::Node::TransformMatrix matrix) {
-                        memcpy(glm::value_ptr(newNode->localTransform), matrix.data(), sizeof(matrix));
-                    },
-                    // 如果类型是TRS，则将translation、rotation和scale转换为glm::mat4，并计算出transformMatrix
-                    // TRS是Transform、Rotation、Scale的缩写，分别表示平移、旋转和缩放
-                    [newNode](fastgltf::Node::TRS transform) {
-                        glm::vec3 tl = glm::make_vec3(transform.translation.data());
-                        glm::quat rot = glm::make_quat(transform.rotation.data());
-                        glm::vec3 sc = glm::make_vec3(transform.scale.data());
+        std::visit(
+            fastgltf::visitor {
+                // 如果类型是TransformMatrix，则将matrix复制到newNode的localTransform成员中
+                [newNode](fastgltf::Node::TransformMatrix matrix) {
+                    memcpy(glm::value_ptr(newNode->localTransform), matrix.data(), sizeof(matrix));
+                },
+                // 如果类型是TRS，则将translation、rotation和scale转换为glm::mat4，并计算出transformMatrix
+                // TRS是Transform、Rotation、Scale的缩写，分别表示平移、旋转和缩放
+                [newNode](fastgltf::Node::TRS transform) {
+                    glm::vec3 tl = glm::make_vec3(transform.translation.data());
+                    glm::quat rot = glm::make_quat(transform.rotation.data());
+                    glm::vec3 sc = glm::make_vec3(transform.scale.data());
 
-                        glm::mat4 transformMatrix = glm::translate(glm::mat4(1.f), tl);
-                        glm::mat4 rotMatrix = glm::mat4_cast(rot);
-                        glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.f), sc);
+                    glm::mat4 transformMatrix = glm::translate(glm::mat4(1.f), tl);
+                    glm::mat4 rotMatrix = glm::mat4_cast(rot);
+                    glm::mat4 scaleMatrix = glm::scale(glm::mat4(1.f), sc);
 
-                        // 将平移、旋转和缩放矩阵相乘，得到最终的变换矩阵，注意矩阵的乘法顺序，先缩放，再旋转，最后平移
-                        newNode->localTransform = transformMatrix * rotMatrix * scaleMatrix;
-                    }
-            }, node.transform);
+                    // 将平移、旋转和缩放矩阵相乘，得到最终的变换矩阵，注意矩阵的乘法顺序，先缩放，再旋转，最后平移
+                    newNode->localTransform = transformMatrix * rotMatrix * scaleMatrix;
+                }
+            }, 
+            node.transform);
     }
 
     // 遍历节点，设置节点的层级关系
@@ -573,9 +593,131 @@ void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& drawContext)
 
 void LoadedGLTF::clear_all()
 {
+    VkDevice device = engine->get_device();
+
+    descriptorAllocator.destroy_pool(device);
+    engine->destroy_buffer(sceneUniformBuffer);
+
+    for (auto& [k, v] : meshes) {
+        engine->destroy_buffer(v->meshBuffers.indexBuffer);
+        engine->destroy_buffer(v->meshBuffers.vertexBuffer);
+    }
+
+    for (auto& [k, v] : images) {
+        if (v.image == engine->get_error_image().image) {
+            continue;
+        }
+        engine->destroy_image(v);
+    }
+
+    for (auto& sampler : samplers) {
+        vkDestroySampler(device, sampler, nullptr);
+    }
 }
 
 LoadedGLTF::~LoadedGLTF()
 {
     clear_all();
+}
+
+std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image)
+{
+    AllocatedImage newImage {};
+    
+    int width, height, nrChannels;
+
+    std::visit(
+        fastgltf::visitor {
+            // 默认情况，当数据是其他类型时，不做任何处理
+            [](auto& arg) {},
+
+            // 如果数据是URI类型，则从文件中加载图像数据
+            [&](fastgltf::sources::URI& filePath) {
+                // 断言，确保文件偏移量为0
+                assert(filePath.fileByteOffset == 0);
+                // 断言，确保文件路径是本地路径
+                assert(filePath.uri.isLocalPath());
+
+                // 基于string_view创建string，这种方法可以避免拷贝string
+                const std::string path{filePath.uri.path().begin(), filePath.uri.path().end()};
+
+                // 加载图像数据
+                unsigned char* data = stbi_load(path.c_str(), &width, &height, &nrChannels, 4);
+
+                // 如果加载成功，则创建图像
+                if (data) {
+                    VkExtent3D imageExtent;
+                    imageExtent.width = static_cast<uint32_t>(width);
+                    imageExtent.height = static_cast<uint32_t>(height);
+                    imageExtent.depth = 1;
+
+                    // 创建图像
+                    newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    // 释放图像数据
+                    stbi_image_free(data);
+                }
+            },
+
+            // 如果数据是vector类型，则从内存中加载图像数据
+            [&](fastgltf::sources::Vector& vector) {
+                // 加载图像数据
+                unsigned char* data = stbi_load_from_memory(vector.bytes.data(), static_cast<int>(vector.bytes.size()), &width, 
+                    &height, &nrChannels, 4);
+                if (data) {
+                    VkExtent3D imageExtent;
+                    imageExtent.width = static_cast<uint32_t>(width);
+                    imageExtent.height = static_cast<uint32_t>(height);
+                    imageExtent.depth = 1;
+
+                    // 创建图像
+                    newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    // 释放图像数据
+                    stbi_image_free(data);
+                }
+            },
+
+            // 如果数据是buffer类型，则从缓冲区中加载图像数据
+            [&](fastgltf::sources::BufferView& view) {
+                // 获取缓冲区视图
+                auto& bufferView = asset.bufferViews[view.bufferViewIndex];
+                // 获取缓冲区
+                auto& buffer = asset.buffers[bufferView.bufferIndex];
+
+                std::visit(
+                    fastgltf::visitor {
+                        [](auto& arg) {},
+
+                        // 如果数据是vector类型，则从内存中加载图像数据，这里只考虑VectorWithMime
+                        // 因为在加载数据时指定了LoadExternalBuffer，所以所有数据都已经存储在vector中
+                        [&](fastgltf::sources::Vector& vector) {
+                            // 加载图像数据
+                            // 数据从bufferView.byteOffset开始，长度为bufferView.byteLength
+                            unsigned char* data = stbi_load_from_memory(vector.bytes.data() + bufferView.byteOffset,
+                                static_cast<int>(bufferView.byteLength), &width, &height, &nrChannels, 4);
+                            // 如果加载成功，则创建图像
+                            if (data) {
+                                VkExtent3D imageExtent;
+                                imageExtent.width = static_cast<uint32_t>(width);
+                                imageExtent.height = static_cast<uint32_t>(height);
+                                imageExtent.depth = 1;
+
+                                // 创建图像
+                                newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                // 释放图像数据
+                                stbi_image_free(data);
+                            }
+                        }
+                    }, 
+                    buffer.data);
+            }
+        },
+        image.data
+    );
+
+    // 如果图像创建失败，则返回空
+    if (newImage.image == VK_NULL_HANDLE) {
+        return std::nullopt;
+    }
+
+    return newImage;
 }

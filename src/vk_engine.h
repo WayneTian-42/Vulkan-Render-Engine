@@ -83,7 +83,7 @@ struct ComputePipeline
 
 constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
 
-class VulkanEngine 
+class VulkanEngine : public std::enable_shared_from_this<VulkanEngine>
 {
 public:
 
@@ -186,6 +186,29 @@ public:
 	 */
 	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 
+	/**
+	 * @brief 创建图像，并拷贝数据到图像中
+	 * @param data 图像数据
+	 * @param extent 图像大小
+	 * @param format 图像格式
+	 * @param usage 图像使用标志
+	 * @param mipmapped 是否启用mipmap
+	 * @return AllocatedImage 图像
+	 */
+	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+
+	/**
+	 * @brief 销毁缓冲区
+	 * @param buffer 缓冲区
+	 */
+	void destroy_buffer(const AllocatedBuffer& buffer);
+
+	/**
+	 * @brief 销毁图像
+	 * @param image 图像
+	 */
+	void destroy_image(const AllocatedImage& image);
+	
 	MaterialInstance create_metallic_roughness_instance(MaterialPass pass, const GLTFMetallicRoughness::MaterialResources& materialResources, const GLTFMetallicRoughness::MaterialConstants& materialConstants, DescriptorAllocatorGrowable& descriptorAllocator)
 	{
 		return _metalRoughnessMaterial.create_material_instance(_device, pass, materialResources, materialConstants, descriptorAllocator);
@@ -267,29 +290,6 @@ private:
 	 * @return AllocatedImage 图像
 	 */
 	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
-
-	/**
-	 * @brief 创建图像，并拷贝数据到图像中
-	 * @param data 图像数据
-	 * @param extent 图像大小
-	 * @param format 图像格式
-	 * @param usage 图像使用标志
-	 * @param mipmapped 是否启用mipmap
-	 * @return AllocatedImage 图像
-	 */
-	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
-	
-	/**
-	 * @brief 销毁缓冲区
-	 * @param buffer 缓冲区
-	 */
-	void destroy_buffer(const AllocatedBuffer& buffer);
-
-	/**
-	 * @brief 销毁图像
-	 * @param image 图像
-	 */
-	void destroy_image(const AllocatedImage& image);
 
 	/**
 	 * @brief 绘制背景

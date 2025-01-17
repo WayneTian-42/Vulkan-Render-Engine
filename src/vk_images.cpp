@@ -1,6 +1,7 @@
 #include <vk_images.h>
 #include <vk_initializers.h>
 
+
 void vkutil::transition_image_layout(VkCommandBuffer cmd, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout)
 {
     VkImageMemoryBarrier2 imageMemoryBarrier{

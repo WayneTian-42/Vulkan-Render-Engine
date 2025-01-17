@@ -32,15 +32,15 @@ void Camera::process_input(SDL_Event& event)
 
     // 按下鼠标并且移动时，增加或减少俯仰角和偏航角
     if (event.type == SDL_MOUSEMOTION && event.motion.state == SDL_BUTTON_LEFT) {
-        _pitch += static_cast<float>(event.motion.yrel) * 0.001f;
-        _yaw -= static_cast<float>(event.motion.xrel) * 0.001f;
+        _pitch += static_cast<float>(event.motion.yrel) * 0.005f;
+        _yaw -= static_cast<float>(event.motion.xrel) * 0.005f;
     }
 }
 
 void Camera::update(float dt)
 {
     glm::mat4 cameraRotation = get_rotation_matrix();
-    _position += glm::vec3(cameraRotation * glm::vec4(_velocity * 0.005f, 0.0f)) * dt;
+    _position += glm::vec3(cameraRotation * glm::vec4(_velocity * 0.01f, 0.0f)) * dt;
 }
 
 glm::mat4 Camera::get_view_matrix() const
