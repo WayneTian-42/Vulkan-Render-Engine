@@ -7,7 +7,6 @@
 #include "vk_descriptors.h"
 #include "vk_loader.h"
 #include "vk_materials.h"
-#include "vk_render_object.h"
 #include "camera.h"
 
 // 删除队列，用于管理资源的生命周期
@@ -160,6 +159,38 @@ public:
 	 */
 	VkFormat get_depth_image_format() const { return _depthImage.imageFormat; }
 
+	/**
+	 * @brief 获取错误棋盘图像
+	 * @return AllocatedImage 错误棋盘图像
+	 */
+	AllocatedImage get_error_image() const { return _errorCheckerboardImage; }
+
+	/**
+	 * @brief 获取白色图像
+	 * @return AllocatedImage 白色图像
+	 */
+	AllocatedImage get_white_image() const { return _whiteImage; }
+
+	/**
+	 * @brief 获取线性采样器
+	 * @return VkSampler 线性采样器
+	 */
+	VkSampler get_sampler_linear() const { return _defaultSamplerLinear; }
+
+	/**
+	 * @brief 创建缓冲区
+	 * @param allocSize 分配大小
+	 * @param usage 缓冲区使用标志
+	 * @param memoryUsage 内存使用标志
+	 * @return AllocatedBuffer 缓冲区
+	 */
+	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+
+	MaterialInstance create_metallic_roughness_instance(MaterialPass pass, const GLTFMetallicRoughness::MaterialResources& materialResources, const GLTFMetallicRoughness::MaterialConstants& materialConstants, DescriptorAllocatorGrowable& descriptorAllocator)
+	{
+		return _metalRoughnessMaterial.create_material_instance(_device, pass, materialResources, materialConstants, descriptorAllocator);
+	}
+
 private:
 	/**
 	 * @brief 初始化Vulkan
@@ -226,15 +257,6 @@ private:
 	 * @brief 初始化imgui
 	 */
 	void init_imgui();
-	
-	/**
-	 * @brief 创建缓冲区
-	 * @param allocSize 分配大小
-	 * @param usage 缓冲区使用标志
-	 * @param memoryUsage 内存使用标志
-	 * @return AllocatedBuffer 缓冲区
-	 */
-	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
 
 	/**
 	 * @brief 创建图像，只分配内存
@@ -428,4 +450,7 @@ private:
 	Camera _mainCamera;
 	// 上次更新时间
 	std::chrono::steady_clock::time_point _lastTime;
+
+	// 加载的gltf模型
+	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> _loadedGLTFs;
 };
