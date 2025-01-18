@@ -680,7 +680,7 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -698,7 +698,7 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -730,7 +730,7 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                                 imageExtent.depth = 1;
 
                                 // 创建图像
-                                newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
                                 // 释放图像数据
                                 stbi_image_free(data);
                             }

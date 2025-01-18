@@ -58,36 +58,63 @@ bool is_visible(const RenderObject& draw, const glm::mat4& viewProj)
     // 在裁剪空间中检查
     int insideCount = 0;  // 记录在视锥体内的顶点数量
 
+    // 在裁剪空间中检查
+    bool allOutLeft {true};    // 所有点都在左平面外
+    bool allOutRight {true};   // 所有点都在右平面外
+    bool allOutTop {true};     // 所有点都在上平面外
+    bool allOutBottom {true};  // 所有点都在下平面外
+    bool allOutNear {true};    // 所有点都在近平面外
+    bool allOutFar {true};     // 所有点都在远平面外
+    bool allBehind {true};     // 所有点都在近平面后面
+
     // 遍历包围盒的8个顶点
     for (const auto& corner : corners) {
         // 变换到裁剪空间
         glm::vec4 clipSpace = matrix * glm::vec4(draw.bounds.origin + corner * draw.bounds.extents, 1.0f);
         
         // 检查是否在近平面后面
-        if (clipSpace.w <= 0) {
-            continue;
-        }
+        if (clipSpace.w > 0) {
+            allBehind = false;
 
-        // 原来的代码，由于透视除法，当w接近0或者负数时，会导致坐标值异常，因此不判断包围盒顶点的最大和最小值是否在NDC空间内
-        // glm::vec4 transformed = matrix * glm::vec4(draw.bounds.origin + corner * draw.bounds.extents, 1.0f);
-        // glm::vec3 pos = glm::vec3(transformed) / transformed.w;  // 直接进行透视除法
-        // min = glm::min(min, pos);
-        // max = glm::max(max, pos);
+            // 原来的代码，由于透视除法，当w接近0或者负数时，会导致坐标值异常，因此不判断包围盒顶点的最大和最小值是否在NDC空间内
+            // glm::vec4 transformed = matrix * glm::vec4(draw.bounds.origin + corner * draw.bounds.extents, 1.0f);
+            // glm::vec3 pos = glm::vec3(transformed) / transformed.w;  // 直接进行透视除法
+            // min = glm::min(min, pos);
+            // max = glm::max(max, pos);
 
-        // 执行透视除法
-        float invW = 1.0f / clipSpace.w;
-        glm::vec3 ndc = glm::vec3(clipSpace) * invW;
-        
-        // 检查点是否在NDC空间的[-1,1]范围内
-        if (ndc.x >= -1.0f && ndc.x <= 1.0f &&
-            ndc.y >= -1.0f && ndc.y <= 1.0f &&
-            ndc.z >= -1.0f && ndc.z <= 1.0f) {
-            insideCount++;
+            // 执行透视除法
+            float invW = 1.0f / clipSpace.w;
+            glm::vec3 ndc = glm::vec3(clipSpace) * invW;
+            
+            // 检查点是否在左平面外
+            if (ndc.x >= -1.0f ) {
+                allOutLeft = false;
+            }
+            // 检查点是否在右平面外
+            if (ndc.x <= 1.0f) {
+                allOutRight = false;
+            }
+            // 检查点是否在上平面外
+            if (ndc.y <= 1.0f) {
+                allOutTop = false;
+            }
+            // 检查点是否在下平面外
+            if (ndc.y >= -1.0f) {
+                allOutBottom = false;
+            }
+            // 检查点是否在近平面外
+            if (ndc.z >= -1.0f) {
+                allOutNear = false;
+            }
+            // 检查点是否在远平面外
+            if (ndc.z <= 1.0f) {
+                allOutFar = false;
+            }
         }
     }
 
     // 如果没有任何顶点在视锥体内，则物体不可见
-    if (insideCount == 0) {
+    if (allBehind || allOutLeft || allOutRight || allOutTop || allOutBottom || allOutNear || allOutFar) {
         return false;
     }
 
@@ -927,8 +954,12 @@ AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkForma
         vkCmdCopyBufferToImage(cmd, uploadBuffer.buffer, newImage.image, 
             VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-        // 将图像从传输目标状态转换为shader读取状态
-        vkutil::transition_image_layout(cmd, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        if (mipmapped) {
+            vkutil::generate_mipmaps(cmd, newImage.image, VkExtent2D{extent.width, extent.height});
+        } else {
+            // 将图像从传输目标状态转换为shader读取状态
+            vkutil::transition_image_layout(cmd, newImage.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+        }
     });
 
     // 销毁上传缓冲区

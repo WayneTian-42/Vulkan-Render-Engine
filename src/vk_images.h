@@ -23,4 +23,12 @@ namespace vkutil {
      * @param dstSize 目标图像大小
      */
     void copy_image_to_image(VkCommandBuffer cmd, VkImage srcImage, VkImage dstImage, VkExtent2D srcSize, VkExtent2D dstSize);
+
+    /**
+     * @brief 生成mipmap
+     * @param cmd 命令缓冲区
+     * @param image 图像
+     * @param imageSize 图像大小
+     */
+    void generate_mipmaps(VkCommandBuffer cmd, VkImage image, VkExtent2D imageSize);
 };
