@@ -62,7 +62,7 @@ VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter) {
 // filesystem::path是 C++17 引入的文件系统库中的一个类，用于表示和操作文件路径。
 // 它提供了一种跨平台的方式来处理文件路径，能够自动处理不同操作系统之间的路径分隔符差异
 // 加载GLTF文件并返回MeshAsset集合
-std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_meshes(VulkanEngine* engine, const std::filesystem::path& path) 
+std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_meshes(const std::filesystem::path& path) 
 {
     // 打印正在加载的GLTF文件路径
     std::cout << "Loading GLTF: " << path << std::endl;
@@ -193,7 +193,7 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_meshes(VulkanEn
         }
 
         // 将网格数据上传到GPU
-        newMesh.meshBuffers = engine->upload_mesh(indices, vertices);
+        newMesh.meshBuffers = VulkanEngine::Get().upload_mesh(indices, vertices);
 
         // 将网格添加到返回集合中
         meshes.emplace_back(std::make_shared<MeshAsset>(std::move(newMesh)));
@@ -205,13 +205,13 @@ std::optional<std::vector<std::shared_ptr<MeshAsset>>> load_gltf_meshes(VulkanEn
 
 // string_view 是 C++17 引入的用于表示字符串视图的类，它是一个轻量级的、不可变的字符串表示
 // 它通常用于传递字符串参数，而不需要拥有实际的字符串数据
-std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine, std::string_view filePath) 
+std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view filePath) 
 {
     // 打印正在加载的GLTF文件路径
     fmt::println("Loading GLTF: {}", filePath);
 
     std::shared_ptr<LoadedGLTF> scene = std::make_shared<LoadedGLTF>();
-    scene->engine = engine;
+    // scene->engine = &(VulkanEngine::Get());
     auto& gltf = *(scene.get());
 
     // 创建GLTF数据缓冲区并加载文件内容
@@ -261,7 +261,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
         {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1},
     };
 
-    gltf.descriptorAllocator.init(engine->get_device(), asset.materials.size(), poolSizeRatios);
+    gltf.descriptorAllocator.init(VulkanEngine::Get().get_device(), asset.materials.size(), poolSizeRatios);
 
     // 加载samplers
     for (auto& sampler : asset.samplers) {
@@ -282,7 +282,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
         samplerInfo.mipmapMode = extract_mipmap_mode(sampler.minFilter.value_or(fastgltf::Filter::Nearest));
 
         VkSampler newSampler;
-        vkCreateSampler(engine->get_device(), &samplerInfo, nullptr, &newSampler);
+        vkCreateSampler(VulkanEngine::Get().get_device(), &samplerInfo, nullptr, &newSampler);
         // 将新创建的采样器添加到samplers列表中
         gltf.samplers.push_back(newSampler);
     }
@@ -296,7 +296,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
 
     // 加载图像，用于纹理绘制
     for (auto& image : asset.images) {
-        auto img = load_gltf_image(engine, asset, image);
+        auto img = load_gltf_image(asset, image);
 
         if (img.has_value()) {
             // images.push_back(std::make_shared<AllocatedImage>(img.value()));
@@ -305,8 +305,8 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
             gltf.images[static_cast<std::string>(image.name)] = img.value();
         } else {
             // 暂时采用错误棋盘图像当作默认图像
-            // images.push_back(std::make_shared<AllocatedImage>(engine->get_error_image()));
-            images.push_back(engine->get_error_image());
+            // images.push_back(std::make_shared<AllocatedImage>(VulkanEngine::Get().get_error_image()));
+            images.push_back(VulkanEngine::Get().get_error_image());
             // 输出错误信息
             fmt::println("Failed to load image: {}", image.name);
             // std::cout << "Failed to load image: " << image.name << std::endl;
@@ -314,7 +314,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
     }
 
     // 创建buffer存储材质数据
-    gltf.sceneUniformBuffer = engine->create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * asset.materials.size(),
+    gltf.sceneUniformBuffer = VulkanEngine::Get().create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * asset.materials.size(),
         VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
     auto* sceneConstants = static_cast<GLTFMetallicRoughness::MaterialConstants*>
@@ -346,10 +346,10 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
         // 创建材质资源
         GLTFMetallicRoughness::MaterialResources materialResources;
         // 设置默认纹理
-        materialResources.colorImage = engine->get_white_image();
-        materialResources.colorSampler = engine->get_sampler_linear();
-        materialResources.metallicRoughnessImage = engine->get_white_image();
-        materialResources.metallicRoughnessSampler = engine->get_sampler_linear();
+        materialResources.colorImage = VulkanEngine::Get().get_white_image();
+        materialResources.colorSampler = VulkanEngine::Get().get_sampler_linear();
+        materialResources.metallicRoughnessImage = VulkanEngine::Get().get_white_image();
+        materialResources.metallicRoughnessSampler = VulkanEngine::Get().get_sampler_linear();
 
         // 设置uniform buffer
         materialResources.materialBuffer = gltf.sceneUniformBuffer.buffer;
@@ -365,7 +365,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
             materialResources.colorSampler = gltf.samplers[samplerIndex];
         }
         // 创建材质实例
-        newMaterial->instance = engine->create_metallic_roughness_instance(passType, materialResources, materialConstants, gltf.descriptorAllocator);
+        newMaterial->instance = VulkanEngine::Get().create_metallic_roughness_instance(passType, materialResources, materialConstants, gltf.descriptorAllocator);
 
         dataIndex++;
     }
@@ -469,7 +469,7 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(VulkanEngine* engine,
             newMesh->surfaces.push_back(surface);
         }
         // 将网格数据上传到GPU
-        newMesh->meshBuffers = engine->upload_mesh(indices, vertices);
+        newMesh->meshBuffers = VulkanEngine::Get().upload_mesh(indices, vertices);
     }
 
     // 加载节点
@@ -593,21 +593,21 @@ void LoadedGLTF::draw(const glm::mat4& topMatrix, DrawContext& drawContext)
 
 void LoadedGLTF::clear_all()
 {
-    VkDevice device = engine->get_device();
+    VkDevice device = VulkanEngine::Get().get_device();
 
     descriptorAllocator.destroy_pool(device);
-    engine->destroy_buffer(sceneUniformBuffer);
+    VulkanEngine::Get().destroy_buffer(sceneUniformBuffer);
 
     for (auto& [k, v] : meshes) {
-        engine->destroy_buffer(v->meshBuffers.indexBuffer);
-        engine->destroy_buffer(v->meshBuffers.vertexBuffer);
+        VulkanEngine::Get().destroy_buffer(v->meshBuffers.indexBuffer);
+        VulkanEngine::Get().destroy_buffer(v->meshBuffers.vertexBuffer);
     }
 
     for (auto& [k, v] : images) {
-        if (v.image == engine->get_error_image().image) {
+        if (v.image == VulkanEngine::Get().get_error_image().image) {
             continue;
         }
-        engine->destroy_image(v);
+        VulkanEngine::Get().destroy_image(v);
     }
 
     for (auto& sampler : samplers) {
@@ -620,7 +620,7 @@ LoadedGLTF::~LoadedGLTF()
     clear_all();
 }
 
-std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::Asset& asset, fastgltf::Image& image)
+std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::Image& image)
 {
     AllocatedImage newImage {};
     
@@ -652,7 +652,7 @@ std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::As
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -670,7 +670,7 @@ std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::As
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -702,7 +702,7 @@ std::optional<AllocatedImage> load_gltf_image(VulkanEngine* engine, fastgltf::As
                                 imageExtent.depth = 1;
 
                                 // 创建图像
-                                newImage = engine->create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
+                                newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false);
                                 // 释放图像数据
                                 stbi_image_free(data);
                             }

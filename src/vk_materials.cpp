@@ -2,16 +2,16 @@
 #include "vk_pipelines.h"
 #include "vk_engine.h"
 
-void GLTFMetallicRoughness::build_pipelines(VulkanEngine* engine) {
+void GLTFMetallicRoughness::build_pipelines() {
     // 加载着色器
     VkShaderModule meshVertShader;
-    if (!vkutil::load_shader_module("../shaders/mesh.vert.spv", engine->get_device(), &meshVertShader)) {
+    if (!vkutil::load_shader_module("../shaders/mesh.vert.spv", VulkanEngine::Get().get_device(), &meshVertShader)) {
         fmt::println("Error when building the mesh vertex shader");
         return;
     }
 
     VkShaderModule meshFragShader;
-    if (!vkutil::load_shader_module("../shaders/mesh.frag.spv", engine->get_device(), &meshFragShader)) {
+    if (!vkutil::load_shader_module("../shaders/mesh.frag.spv", VulkanEngine::Get().get_device(), &meshFragShader)) {
         fmt::println("Error when building the mesh fragment shader");
         return;
     }
@@ -28,9 +28,9 @@ void GLTFMetallicRoughness::build_pipelines(VulkanEngine* engine) {
     builder.add_binding(1, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
     builder.add_binding(2, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
 
-    materialSetLayout = builder.build(engine->get_device(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
+    materialSetLayout = builder.build(VulkanEngine::Get().get_device(), VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
-    VkDescriptorSetLayout layouts[] = {engine->get_scene_set_layout(), materialSetLayout};
+    VkDescriptorSetLayout layouts[] = {VulkanEngine::Get().get_scene_set_layout(), materialSetLayout};
 
     // 创建管线布局
     VkPipelineLayoutCreateInfo pipelineLayoutInfo {
@@ -44,7 +44,7 @@ void GLTFMetallicRoughness::build_pipelines(VulkanEngine* engine) {
     pipelineLayoutInfo.pPushConstantRanges = &materialPushConstantRange;
 
     VkPipelineLayout pipelineLayout;
-    VK_CHECK(vkCreatePipelineLayout(engine->get_device(), &pipelineLayoutInfo, nullptr, &pipelineLayout));
+    VK_CHECK(vkCreatePipelineLayout(VulkanEngine::Get().get_device(), &pipelineLayoutInfo, nullptr, &pipelineLayout));
 
     // 设定管线布局
     opaquePipeline.pipelineLayout = pipelineLayout;
@@ -61,23 +61,23 @@ void GLTFMetallicRoughness::build_pipelines(VulkanEngine* engine) {
     pipelineBuilder.enable_depth_test(VK_TRUE, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
     // 设置颜色和深度附件格式
-    pipelineBuilder.set_color_attachment_format(engine->get_draw_image_format());
-    pipelineBuilder.set_depth_attachment_format(engine->get_depth_image_format());
+    pipelineBuilder.set_color_attachment_format(VulkanEngine::Get().get_draw_image_format());
+    pipelineBuilder.set_depth_attachment_format(VulkanEngine::Get().get_depth_image_format());
 
     pipelineBuilder._pipelineLayout = pipelineLayout;
 
     // 构建不透明管线
-    opaquePipeline.pipeline = pipelineBuilder.build_pipeline(engine->get_device());
+    opaquePipeline.pipeline = pipelineBuilder.build_pipeline(VulkanEngine::Get().get_device());
 
     // 构建透明管线
     pipelineBuilder.enable_blending_additive();
     pipelineBuilder.enable_depth_test(VK_FALSE, VK_COMPARE_OP_GREATER_OR_EQUAL);
 
-    transparentPipeline.pipeline = pipelineBuilder.build_pipeline(engine->get_device());
+    transparentPipeline.pipeline = pipelineBuilder.build_pipeline(VulkanEngine::Get().get_device());
 
     // 销毁着色器
-    vkDestroyShaderModule(engine->get_device(), meshVertShader, nullptr);
-    vkDestroyShaderModule(engine->get_device(), meshFragShader, nullptr);
+    vkDestroyShaderModule(VulkanEngine::Get().get_device(), meshVertShader, nullptr);
+    vkDestroyShaderModule(VulkanEngine::Get().get_device(), meshFragShader, nullptr);
 }
 
 void GLTFMetallicRoughness::clear_resources(VkDevice device) {

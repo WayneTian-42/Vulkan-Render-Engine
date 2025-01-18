@@ -54,7 +54,7 @@ struct GLTFMetallicRoughness {
      * @brief 构建管线
      * @param engine 引擎
      */
-    void build_pipelines(VulkanEngine* engine);
+    void build_pipelines();
 
     /**
      * @brief 清除资源

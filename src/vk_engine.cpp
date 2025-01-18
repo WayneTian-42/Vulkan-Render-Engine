@@ -28,6 +28,10 @@
 VulkanEngine* loadedEngine = nullptr;
 
 VulkanEngine& VulkanEngine::Get() { return *loadedEngine; }
+
+// 是否使用Vulkan Validation Layers
+constexpr bool useValidationLayers = false;
+
 void VulkanEngine::init()
 {
     // only one engine initialization is allowed with the application.
@@ -76,7 +80,7 @@ void VulkanEngine::init_vulkan()
 
     // 构造instance，设置app名称，启用验证层，使用默认的debug messenger，要求API版本为1.3.0
     auto inst_builder = builder.set_app_name("Vulkan Engine")
-        .request_validation_layers(true)
+        .request_validation_layers(useValidationLayers)
         .use_default_debug_messenger()
         .require_api_version(1, 3, 0)
         .build();
@@ -337,7 +341,7 @@ void VulkanEngine::init_pipelines()
     init_triangle_pipeline();
     init_mesh_pipeline();
 
-    _metalRoughnessMaterial.build_pipelines(this);
+    _metalRoughnessMaterial.build_pipelines();
 
 }
 
@@ -662,7 +666,7 @@ void VulkanEngine::init_default_data()
         _metalRoughnessMaterial.clear_resources(_device);
     });
 
-    _testMeshes = load_gltf_meshes(this, "../assets/basicmesh.glb").value();
+    _testMeshes = load_gltf_meshes("../assets/basicmesh.glb").value();
 
     // 创建mesh节点
     for (auto& mesh : _testMeshes) {
@@ -684,7 +688,7 @@ void VulkanEngine::init_default_data()
 
     // 加载gltf文件
     std::string gltfPath = "../assets/structure.glb";
-    auto structureGLTF = load_gltf_files(this, gltfPath);
+    auto structureGLTF = load_gltf_files(gltfPath);
     
     assert(structureGLTF.has_value());
 
@@ -1013,13 +1017,8 @@ void VulkanEngine::update_scene()
     _drawContext.opaqueSurfaces.clear();
     _drawContext.transparentSurfaces.clear();
 
-    // 计算时间差，单位是毫秒
-    auto currentTime = std::chrono::steady_clock::now();
-    float deltaTime = std::chrono::duration_cast<std::chrono::duration<float>>(currentTime - _lastTime).count() * 1000.f;
-    _lastTime = currentTime;
-
     // 更新相机
-    _mainCamera.update(deltaTime);
+    _mainCamera.update(_engineStats.frameTime);
 
     // 设置drawImage的extent
     _drawImageExtent.width = static_cast<uint32_t>(std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * _renderScale);
@@ -1183,6 +1182,12 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     // 动态分配描述符集
     //todo: 将每一帧的描述符池缓存起来，避免每次都重新分配
 
+    // 更新引擎统计
+    _engineStats.triangleCount = 0;
+    _engineStats.drawCallCount = 0;
+    // 开始计时
+    auto start = std::chrono::system_clock::now();
+
     // 创建新的uniform buffer
     AllocatedBuffer uniformBuffer = create_buffer(sizeof(GPUSceneData), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
 
@@ -1257,6 +1262,10 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
         // 绘制几何体
         vkCmdDrawIndexed(cmd, draw.indexCount, 1, draw.firstIndex, 0, 0);
+
+        // 更新引擎统计
+        _engineStats.triangleCount += draw.indexCount / 3;
+        ++_engineStats.drawCallCount;
     };
 
     // 绘制不透明几何体
@@ -1271,6 +1280,10 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
     // 结束渲染
     vkCmdEndRendering(cmd);
+
+    // 更新引擎统计
+    auto end = std::chrono::system_clock::now();
+    _engineStats.meshDrawTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.f;
 }
 
 void VulkanEngine::draw_imgui(VkCommandBuffer cmd, VkImageView targetImageView)
@@ -1329,6 +1342,9 @@ void VulkanEngine::run()
 
     // main loop
     while (!bQuit) {
+        // 更新引擎统计
+        auto start = std::chrono::system_clock::now();
+
         // Handle events on queue
         while (SDL_PollEvent(&e) != 0) {
             // close the window when user alt-f4s or clicks the X button
@@ -1366,6 +1382,15 @@ void VulkanEngine::run()
         ImGui_ImplVulkan_NewFrame();
         ImGui_ImplSDL2_NewFrame();
         ImGui::NewFrame();
+
+        // 更新引擎统计
+        if (ImGui::Begin("Engine Stats")) {
+            ImGui::Text("Frame Time: %f ms", _engineStats.frameTime);
+            ImGui::Text("Triangle Count: %d", _engineStats.triangleCount);
+            ImGui::Text("Draw Call Count: %d", _engineStats.drawCallCount);
+            ImGui::Text("Mesh Draw Time: %f ms", _engineStats.meshDrawTime);
+        }
+        ImGui::End();
         
         if (ImGui::Begin("Background")) {
             const auto&pipeline = _backgroundPipelines[_currentBackgroundPipeline];
@@ -1386,6 +1411,10 @@ void VulkanEngine::run()
         ImGui::Render();
 
         draw();
+
+        // 更新引擎统计
+        auto end = std::chrono::system_clock::now();
+        _engineStats.frameTime = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count() / 1000.f;
     }
 }
 

@@ -83,6 +83,13 @@ struct ComputePipeline
 
 constexpr unsigned int MAX_FRAMES_IN_FLIGHT = 3;
 
+struct EngineStats {
+	float frameTime;
+	int triangleCount;
+	int drawCallCount;
+	float meshDrawTime;
+};
+
 class VulkanEngine : public std::enable_shared_from_this<VulkanEngine>
 {
 public:
@@ -448,8 +455,8 @@ private:
 
 	// 相机
 	Camera _mainCamera;
-	// 上次更新时间
-	std::chrono::steady_clock::time_point _lastTime;
+	// 引擎统计
+	EngineStats _engineStats;
 
 	// 加载的gltf模型
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> _loadedGLTFs;
