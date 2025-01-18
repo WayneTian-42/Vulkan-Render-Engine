@@ -2,6 +2,25 @@
     "files.associations": {
         "*.tcc": "cpp",
         "memory_resource": "cpp",
-        "sstream": "cpp"
+        "sstream": "cpp",
+        "bitset": "cpp",
+        "compare": "cpp",
+        "exception": "cpp",
+        "algorithm": "cpp",
+        "format": "cpp",
+        "fstream": "cpp",
+        "functional": "cpp",
+        "initializer_list": "cpp",
+        "istream": "cpp",
+        "mutex": "cpp",
+        "ostream": "cpp",
+        "numeric": "cpp",
+        "ranges": "cpp",
+        "shared_mutex": "cpp",
+        "stop_token": "cpp",
+        "streambuf": "cpp",
+        "type_traits": "cpp",
+        "utility": "cpp",
+        "variant": "cpp"
     }
 }

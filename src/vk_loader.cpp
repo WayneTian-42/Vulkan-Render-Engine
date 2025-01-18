@@ -465,6 +465,23 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
             } else {
                 surface.material = materials[0];
             }
+
+            // 计算几何体的边界
+            glm::vec3 minPos = vertices[initial_vtx].position;
+            glm::vec3 maxPos = vertices[initial_vtx].position;
+            for (auto& vtx : vertices) {
+                // glm::min和glm::max是glm库中的函数，能够获取向量中不同维度上的最小值和最大值
+                // 这里将向量中的x、y、z三个维度上的最小值和最大值分别存储到minPos和maxPos中
+                minPos = glm::min(minPos, vtx.position);
+                maxPos = glm::max(maxPos, vtx.position);
+            }
+
+            // 计算包围球中心点
+            surface.bounds.origin = (minPos + maxPos) * 0.5f;
+            // 计算包围盒尺寸
+            surface.bounds.extents = (maxPos - minPos) * 0.5f;
+            // 计算包围球半径
+            surface.bounds.sphereRadius = glm::length(surface.bounds.extents);
             // 将表面添加到网格的表面集合中
             newMesh->surfaces.push_back(surface);
         }
@@ -568,16 +585,27 @@ void MeshNode::draw(const glm::mat4& topMatrix, DrawContext& drawContext)
 {
     glm::mat4 nodeMatrix = topMatrix * worldTransform;
 
+    // 遍历网格的所有surface，即遍历一个集合体中的所有三角形
     for (auto& surface : mesh->surfaces) {
         RenderObject renderObject;
+        // 设置索引数量
         renderObject.indexCount = surface.indexCount;
+        // 设置起始索引
         renderObject.firstIndex = surface.startIndex;
+        // 设置索引缓冲区
         renderObject.indexBuffer = mesh->meshBuffers.indexBuffer.buffer;
+        // 创建材质实例的拷贝
         renderObject.material = std::make_shared<MaterialInstance>(surface.material->instance);
 
+        // 设置边界信息
+        renderObject.bounds = surface.bounds;
+
+        // 设置变换矩阵
         renderObject.transform = nodeMatrix;
+        // 设置顶点缓冲区的设备地址
         renderObject.vertexBufferAddress = mesh->meshBuffers.vertexBufferAddress;
 
+        // 将渲染对象添加到不透明物体集合中
         drawContext.opaqueSurfaces.push_back(renderObject);
     }
     Node::draw(nodeMatrix, drawContext);

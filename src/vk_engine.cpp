@@ -30,7 +30,69 @@ VulkanEngine* loadedEngine = nullptr;
 VulkanEngine& VulkanEngine::Get() { return *loadedEngine; }
 
 // 是否使用Vulkan Validation Layers
-constexpr bool useValidationLayers = false;
+constexpr bool useValidationLayers = true;
+
+/**
+ * @brief 判断物体是否在视锥体内
+ * @param draw 渲染对象
+ * @param viewProj 视图投影矩阵
+ * @return 是否在视锥体内
+ */
+bool is_visible(const RenderObject& draw, const glm::mat4& viewProj)
+{
+    // 定义包围盒的8个顶点，用于视锥体剔除
+    std::array<glm::vec3, 8> corners {
+        glm::vec3 (1.0f, 1.0f, 1.0f),    // 右上前
+        glm::vec3 (-1.0f, 1.0f, 1.0f),   // 左上前
+        glm::vec3 (1.0f, -1.0f, 1.0f),   // 右下前
+        glm::vec3 (-1.0f, -1.0f, 1.0f),  // 左下前
+        glm::vec3 (1.0f, 1.0f, -1.0f),   // 右上后
+        glm::vec3 (-1.0f, 1.0f, -1.0f),  // 左上后
+        glm::vec3 (1.0f, -1.0f, -1.0f),  // 右下后
+        glm::vec3 (-1.0f, -1.0f, -1.0f)  // 左下后
+    };
+    
+    // 计算视图投影变换矩阵
+    glm::mat4 matrix = viewProj * draw.transform;
+
+    // 在裁剪空间中检查
+    int insideCount = 0;  // 记录在视锥体内的顶点数量
+
+    // 遍历包围盒的8个顶点
+    for (const auto& corner : corners) {
+        // 变换到裁剪空间
+        glm::vec4 clipSpace = matrix * glm::vec4(draw.bounds.origin + corner * draw.bounds.extents, 1.0f);
+        
+        // 检查是否在近平面后面
+        if (clipSpace.w <= 0) {
+            continue;
+        }
+
+        // 原来的代码，由于透视除法，当w接近0或者负数时，会导致坐标值异常，因此不判断包围盒顶点的最大和最小值是否在NDC空间内
+        // glm::vec4 transformed = matrix * glm::vec4(draw.bounds.origin + corner * draw.bounds.extents, 1.0f);
+        // glm::vec3 pos = glm::vec3(transformed) / transformed.w;  // 直接进行透视除法
+        // min = glm::min(min, pos);
+        // max = glm::max(max, pos);
+
+        // 执行透视除法
+        float invW = 1.0f / clipSpace.w;
+        glm::vec3 ndc = glm::vec3(clipSpace) * invW;
+        
+        // 检查点是否在NDC空间的[-1,1]范围内
+        if (ndc.x >= -1.0f && ndc.x <= 1.0f &&
+            ndc.y >= -1.0f && ndc.y <= 1.0f &&
+            ndc.z >= -1.0f && ndc.z <= 1.0f) {
+            insideCount++;
+        }
+    }
+
+    // 如果没有任何顶点在视锥体内，则物体不可见
+    if (insideCount == 0) {
+        return false;
+    }
+
+    return true;
+}
 
 void VulkanEngine::init()
 {
@@ -1223,7 +1285,9 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     opaqueDraws.reserve(_drawContext.opaqueSurfaces.size());
 
     for (uint32_t i = 0; i < _drawContext.opaqueSurfaces.size(); ++i) {
-        opaqueDraws.push_back(i);
+        if (is_visible(_drawContext.opaqueSurfaces[i], _sceneData.viewProj)) {
+            opaqueDraws.push_back(i);
+        }
     }
 
     // std::sort(opaqueDraws.begin(), opaqueDraws.end(), [&](uint32_t a, uint32_t b) {
