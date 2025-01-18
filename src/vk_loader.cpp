@@ -295,39 +295,58 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
     std::vector<std::shared_ptr<GLTFMaterial>> materials;
 
     // 加载图像，用于纹理绘制
+    int unnamedImageCounter = 0; // 添加计数器用于生成唯一名称
     for (auto& image : asset.images) {
         auto img = load_gltf_image(asset, image);
 
         if (img.has_value()) {
-            // images.push_back(std::make_shared<AllocatedImage>(img.value()));
-            // gltf.images[static_cast<std::string>(image.name)] = std::make_shared<AllocatedImage>(img.value());
+            // 生成图像名称：如果图像没有名字，则使用计数器生成唯一名称
+            std::string imageName;
+            if (image.name.empty()) {
+                imageName = fmt::format("unnamed_image_{}", unnamedImageCounter++);
+            } else {
+                imageName = static_cast<std::string>(image.name);
+            }
+            
             images.push_back(img.value());
-            gltf.images[static_cast<std::string>(image.name)] = img.value();
+            gltf.images[imageName] = img.value();
         } else {
-            // 暂时采用错误棋盘图像当作默认图像
-            // images.push_back(std::make_shared<AllocatedImage>(VulkanEngine::Get().get_error_image()));
+            // 对于错误图像也需要生成唯一名称
+            std::string imageName;
+            if (image.name.empty()) {
+                imageName = fmt::format("unnamed_image_{}", unnamedImageCounter++);
+            } else {
+                imageName = static_cast<std::string>(image.name);
+            }
+            
             images.push_back(VulkanEngine::Get().get_error_image());
-            // 输出错误信息
-            fmt::println("Failed to load image: {}", image.name);
-            // std::cout << "Failed to load image: " << image.name << std::endl;
+            gltf.images[imageName] = VulkanEngine::Get().get_error_image();
+            fmt::println("Failed to load image: {}", imageName);
         }
     }
 
     // 创建buffer存储材质数据
     gltf.sceneUniformBuffer = VulkanEngine::Get().create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * asset.materials.size(),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, "MaterialBufferFromVector");
 
     auto* sceneConstants = static_cast<GLTFMetallicRoughness::MaterialConstants*>
         (gltf.sceneUniformBuffer.allocationInfo.pMappedData);
 
     int dataIndex = 0;
     // 加载材质信息
+    int unnamedMaterialCounter = 0;
     for (auto& material : asset.materials) {
         // 创建材质
         auto newMaterial = std::make_shared<GLTFMaterial>();
         materials.push_back(newMaterial);
         // 存储材质
-        gltf.materials[static_cast<std::string>(material.name)] = newMaterial;
+        std::string materialName;
+        if (material.name.empty()) {
+            materialName = fmt::format("unnamed_material_{}", unnamedMaterialCounter++);
+        } else {
+            materialName = static_cast<std::string>(material.name);
+        }
+        gltf.materials[materialName] = newMaterial;
 
         // 设置材质常量
         GLTFMetallicRoughness::MaterialConstants materialConstants;
@@ -623,24 +642,52 @@ void LoadedGLTF::clear_all()
 {
     VkDevice device = VulkanEngine::Get().get_device();
 
+    // 先销毁描述符池和统一缓冲区
     descriptorAllocator.destroy_pool(device);
     VulkanEngine::Get().destroy_buffer(sceneUniformBuffer);
 
+    // 清理网格资源
     for (auto& [k, v] : meshes) {
-        VulkanEngine::Get().destroy_buffer(v->meshBuffers.indexBuffer);
-        VulkanEngine::Get().destroy_buffer(v->meshBuffers.vertexBuffer);
-    }
-
-    for (auto& [k, v] : images) {
-        if (v.image == VulkanEngine::Get().get_error_image().image) {
-            continue;
+        if (v && v->meshBuffers.indexBuffer.buffer != VK_NULL_HANDLE) {
+            VulkanEngine::Get().destroy_buffer(v->meshBuffers.indexBuffer);
         }
-        VulkanEngine::Get().destroy_image(v);
+        if (v && v->meshBuffers.vertexBuffer.buffer != VK_NULL_HANDLE) {
+            VulkanEngine::Get().destroy_buffer(v->meshBuffers.vertexBuffer);
+        }
     }
+    meshes.clear();
 
-    for (auto& sampler : samplers) {
-        vkDestroySampler(device, sampler, nullptr);
+    // 清理图像资源
+    for (auto& [k, v] : images) {
+        // fmt::println("image name: {}", k);
+        // 检查图像是否是错误图像
+        if (v.image != VK_NULL_HANDLE && 
+            v.image != VulkanEngine::Get().get_error_image().image) {
+            VulkanEngine::Get().destroy_image(v);
+            // fmt::println("destroy image: {}", k);
+        }
     }
+    images.clear();
+
+    // 清理采样器
+    for (auto& sampler : samplers) {
+        if (sampler != VK_NULL_HANDLE) {
+            vkDestroySampler(device, sampler, nullptr);
+        }
+    }
+    samplers.clear();
+
+    // 清理材质
+    materials.clear();
+
+    // 清理节点
+    rootNodes.clear();
+    nodes.clear();
+
+    // char* allocInfo;
+    // vmaBuildStatsString(VulkanEngine::Get().get_allocator(), &allocInfo, true);
+    // fmt::print("VMA Allocator Stats: {}", allocInfo);
+    // vmaFreeStatsString(VulkanEngine::Get().get_allocator(), allocInfo);
 }
 
 LoadedGLTF::~LoadedGLTF()
@@ -680,7 +727,8 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+                        true, fmt::format("{}_MaterialImage", path.c_str()).c_str());
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -698,7 +746,8 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                     imageExtent.depth = 1;
 
                     // 创建图像
-                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                    newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+                        true, "MaterialImageFromVector");
                     // 释放图像数据
                     stbi_image_free(data);
                 }
@@ -730,7 +779,8 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
                                 imageExtent.depth = 1;
 
                                 // 创建图像
-                                newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, true);
+                                newImage = VulkanEngine::Get().create_image(data, imageExtent, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+                                    true, "MaterialImageFromBuffer");
                                 // 释放图像数据
                                 stbi_image_free(data);
                             }

@@ -236,6 +236,9 @@ void VulkanEngine::init_vulkan()
     allocatorInfo.instance = _instance;
     // 启用缓冲区设备地址
     allocatorInfo.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT;
+
+    // allocatorInfo.flags |= VMA_ALLOCATOR_CREATE_DEBUG_MARKERS_BIT;
+
     vmaCreateAllocator(&allocatorInfo, &_allocator);
 
     // 添加内存分配器销毁函数到删除队列
@@ -683,15 +686,18 @@ void VulkanEngine::init_default_data()
     // 创建默认纹理
     // 创建白色纹理
     uint32_t white_image_data = glm::packUnorm4x8(glm::vec4(1.0f, 1.0f, 1.0f, 1.0f));
-    _whiteImage = create_image(static_cast<void*>(&white_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    _whiteImage = create_image(static_cast<void*>(&white_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+        false, "white_image");
 
     // 创建黑色纹理
     uint32_t black_image_data = glm::packUnorm4x8(glm::vec4(0.0f, 0.0f, 0.0f, 1.0f));
-    _blackImage = create_image(static_cast<void*>(&black_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    _blackImage = create_image(static_cast<void*>(&black_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+        false, "black_image");
 
     // 创建灰色纹理
     uint32_t grey_image_data = glm::packUnorm4x8(glm::vec4(0.5f, 0.5f, 0.5f, 1.0f));
-    _greyImage = create_image(static_cast<void*>(&grey_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+    _greyImage = create_image(static_cast<void*>(&grey_image_data), VkExtent3D{1, 1, 1}, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, 
+        false, "grey_image");
 
     // 创建错误棋盘纹理
     uint32_t magenta_image_data = glm::packUnorm4x8(glm::vec4(1.0f, 0.0f, 1.0f, 1.0f));
@@ -702,7 +708,7 @@ void VulkanEngine::init_default_data()
         }
     }
     _errorCheckerboardImage = create_image(static_cast<void*>(magenta_image_data_array.data()), VkExtent3D{16, 16, 1}, 
-        VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT);
+        VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_USAGE_SAMPLED_BIT, false, "error_checkerboard_image");
 
     // 创建默认采样器
     VkSamplerCreateInfo samplerInfo {
@@ -776,13 +782,19 @@ void VulkanEngine::init_default_data()
     }
 
     // 加载gltf文件
-    std::string gltfPath = "../assets/structure.glb";
-    auto structureGLTF = load_gltf_files(gltfPath);
+    // std::string gltfPath = "../assets/structure.glb";
+    // auto structureGLTF = load_gltf_files(gltfPath);
     
-    assert(structureGLTF.has_value());
+    // assert(structureGLTF.has_value());
 
-    _loadedGLTFs["structure"] = *structureGLTF;
+    // _loadedGLTFs["structure"] = *structureGLTF;
+
+    std::string gltfPath = "../assets/DamagedHelmet.glb";
+    auto damagedHelmetGLTF = load_gltf_files(gltfPath);
     
+    assert(damagedHelmetGLTF.has_value());
+
+    _loadedGLTFs["DamagedHelmet"] = *damagedHelmetGLTF;
 }
 
 void VulkanEngine::init_imgui()
@@ -857,7 +869,7 @@ void VulkanEngine::init_imgui()
 }
 
 // 只分配空间，不填充数据
-AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage)
+AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const std::string& debugName)
 {
     AllocatedBuffer newBuffer;
 
@@ -876,12 +888,16 @@ AllocatedBuffer VulkanEngine::create_buffer(size_t allocSize, VkBufferUsageFlags
     vmaAllocInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
     
     VK_CHECK(vmaCreateBuffer(_allocator, &bufferInfo, &vmaAllocInfo,
-     &newBuffer.buffer, &newBuffer.allocation, &newBuffer.allocationInfo));
+        &newBuffer.buffer, &newBuffer.allocation, &newBuffer.allocationInfo));
+
+    if (!debugName.empty()) {
+        vmaSetAllocationName(_allocator, newBuffer.allocation, debugName.c_str());
+    }
     
     return newBuffer;
 }
 
-AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped/* = false */)
+AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped/* = false */, const std::string& debugName/* = "" */)
 {
     AllocatedImage newImage;
     newImage.imageExtent = extent;
@@ -915,15 +931,19 @@ AllocatedImage VulkanEngine::create_image(VkExtent3D extent, VkFormat format, Vk
     // 创建图像视图
     VK_CHECK(vkCreateImageView(_device, &imageViewInfo, nullptr, &newImage.imageView));
 
+    if (!debugName.empty()) {
+        vmaSetAllocationName(_allocator, newImage.allocation, debugName.c_str());
+    }
+
     return newImage;
 }
 
-AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped/* = false */)
+AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped/* = false */, const std::string& debugName/* = "" */)
 {
     // 计算图像大小
     size_t imageSize = extent.width * extent.height * extent.depth * 4;
     // 创建上传缓冲区
-    AllocatedBuffer uploadBuffer = create_buffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    AllocatedBuffer uploadBuffer = create_buffer(imageSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, debugName + "_Buffer");
 
     // 将数据拷贝到上传缓冲区中
     // memcpy(uploadBuffer.allocationInfo.pMappedData, data, imageSize);
@@ -931,7 +951,7 @@ AllocatedImage VulkanEngine::create_image(void* data, VkExtent3D extent, VkForma
 
     // 创建图像
     AllocatedImage newImage = create_image(extent, format, 
-        usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mipmapped);
+        usage | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, mipmapped, debugName + "_Image");
 
     // 立即提交命令
     immediate_submit([&](VkCommandBuffer cmd) {
@@ -1057,6 +1077,7 @@ void VulkanEngine::cleanup()
 
         // 销毁gltf模型
         _loadedGLTFs.clear();
+        _loadedNodes.clear();
 
         // 销毁command pool
         for (int i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
@@ -1117,8 +1138,22 @@ void VulkanEngine::update_scene()
     _drawImageExtent.width = static_cast<uint32_t>(std::min(_swapchainExtent.width, _drawImage.imageExtent.width) * _renderScale);
     _drawImageExtent.height = static_cast<uint32_t>(std::min(_swapchainExtent.height, _drawImage.imageExtent.height) * _renderScale);
 
-    _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
-    _loadedGLTFs["structure"]->draw(glm::mat4(1.0f), _drawContext);
+    // 绘制节点
+    for (const auto& [name, node] : _loadedNodes) {
+        if (_drawFlags[name]) {
+            node->draw(glm::mat4(1.0f), _drawContext);
+        }
+    }
+
+    // 绘制gltf模型
+    for (const auto& [name, gltf] : _loadedGLTFs) {
+        if (_drawFlags[name]) {
+            gltf->draw(glm::mat4(1.0f), _drawContext);
+        }
+    }
+    // _loadedNodes["Suzanne"]->draw(glm::mat4(1.0f), _drawContext);
+    // _loadedGLTFs["structure"]->draw(glm::mat4(1.0f), _drawContext);
+    // _loadedGLTFs["DamagedHelmet"]->draw(glm::mat4(1.0f), _drawContext);
 
     _sceneData.view = _mainCamera.get_view_matrix();
     // 设置投影矩阵，使用透视投影，视角为70度，近平面为10000，远平面为0.1
@@ -1134,12 +1169,12 @@ void VulkanEngine::update_scene()
     _sceneData.ambientColor = glm::vec4(0.1f);
     _sceneData.lightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
 
-    for (int x = -3; x < 3; ++x) {
-        glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
-        glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{x, 1.0f, 0.0f});
+    // for (int x = -3; x < 3; ++x) {
+    //     glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
+    //     glm::mat4 translate = glm::translate(glm::mat4(1.0f), glm::vec3{x, 1.0f, 0.0f});
 
-        _loadedNodes["Cube"]->draw(translate * scale, _drawContext);
-    }
+    //     _loadedNodes["Cube"]->draw(translate * scale, _drawContext);
+    // }
 }
 
 void VulkanEngine::draw()
@@ -1457,7 +1492,6 @@ void VulkanEngine::run()
     SDL_Event e;
     bool bQuit = false;
 
-    // main loop
     while (!bQuit) {
         // 更新引擎统计
         auto start = std::chrono::system_clock::now();
@@ -1507,6 +1541,35 @@ void VulkanEngine::run()
             ImGui::Text("Draw Call Count: %d", _engineStats.drawCallCount);
             ImGui::Text("Mesh Draw Time: %f ms", _engineStats.meshDrawTime);
         }
+        ImGui::End();
+
+        if (ImGui::Begin("GLTF")) {
+            // 遍历所有加载的gltf模型
+            for (auto& [name, gltf] : _loadedGLTFs) {
+                // 检查并初始化drawFlags
+                if (_drawFlags.find(name) == _drawFlags.end()) {
+                    _drawFlags[name] = false;
+                }
+
+                // 创建勾选框，并将状态存储在drawFlags中
+                bool& drawFlag = _drawFlags[name];
+                ImGui::Checkbox(name.c_str(), &drawFlag);
+            }
+
+            // 遍历所有加载的mesh节点
+            for (auto& [name, node] : _loadedNodes) {
+                // 检查并初始化nodeFlags
+                if (_drawFlags.find(name) == _drawFlags.end()) {
+                    _drawFlags[name] = false;
+                }
+
+                // 创建勾选框，并将状态存储在nodeFlags中
+                bool& nodeFlag = _drawFlags[name];
+                ImGui::Checkbox(name.c_str(), &nodeFlag);
+            }
+
+        }
+
         ImGui::End();
         
         if (ImGui::Begin("Background")) {

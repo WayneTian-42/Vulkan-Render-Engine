@@ -13,6 +13,18 @@
 
 #include <vulkan/vulkan.h>
 #include <vulkan/vk_enum_string_helper.h>
+
+// #define VMA_DEBUG_DETECT
+
+#ifdef VMA_DEBUG_DETECT
+    #define VMA_DEBUG_LOG_FORMAT(format, ...) \
+        do { \
+            fprintf(stderr, "[VMA DEBUG] " format "\n", __VA_ARGS__); \
+        } while (0)
+#endif
+
+#define VMA_DEBUG_LOG
+
 #include <vk_mem_alloc.h>
 
 #include <fmt/core.h>

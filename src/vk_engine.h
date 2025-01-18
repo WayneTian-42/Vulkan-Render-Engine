@@ -148,6 +148,8 @@ public:
 	 */
 	VkDevice get_device() const { return _device; }
 
+	VmaAllocator get_allocator() const { return _allocator; }
+
 	/**
 	 * @brief 获取场景数据描述符集布局
 	 * @return VkDescriptorSetLayout 场景数据描述符集布局
@@ -189,9 +191,10 @@ public:
 	 * @param allocSize 分配大小
 	 * @param usage 缓冲区使用标志
 	 * @param memoryUsage 内存使用标志
+	 * @param debugName 调试名称
 	 * @return AllocatedBuffer 缓冲区
 	 */
-	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage);
+	AllocatedBuffer create_buffer(size_t allocSize, VkBufferUsageFlags usage, VmaMemoryUsage memoryUsage, const std::string& debugName = "");
 
 	/**
 	 * @brief 创建图像，并拷贝数据到图像中
@@ -200,9 +203,10 @@ public:
 	 * @param format 图像格式
 	 * @param usage 图像使用标志
 	 * @param mipmapped 是否启用mipmap
+	 * @param debugName 调试名称
 	 * @return AllocatedImage 图像
 	 */
-	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	AllocatedImage create_image(void* data, VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false, const std::string& debugName = "");
 
 	/**
 	 * @brief 销毁缓冲区
@@ -294,9 +298,10 @@ private:
 	 * @param format 图像格式
 	 * @param usage 图像使用标志
 	 * @param mipmapped 是否启用mipmap
+	 * @param debugName 调试名称
 	 * @return AllocatedImage 图像
 	 */
-	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false);
+	AllocatedImage create_image(VkExtent3D extent, VkFormat format, VkImageUsageFlags usage, bool mipmapped = false, const std::string& debugName = "");
 
 	/**
 	 * @brief 绘制背景
@@ -460,4 +465,7 @@ private:
 
 	// 加载的gltf模型
 	std::unordered_map<std::string, std::shared_ptr<LoadedGLTF>> _loadedGLTFs;
+
+	// 节点勾选状态
+	std::unordered_map<std::string, bool> _drawFlags;
 };
