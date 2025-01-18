@@ -41,6 +41,7 @@ struct RenderObject {
 
 struct DrawContext {
     std::vector<RenderObject> opaqueSurfaces;
+    std::vector<RenderObject> transparentSurfaces;
 };
 
 // 接口类，可绘制对象

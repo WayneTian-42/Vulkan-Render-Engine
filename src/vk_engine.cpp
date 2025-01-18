@@ -1009,7 +1009,9 @@ void VulkanEngine::cleanup()
 
 void VulkanEngine::update_scene()
 {
+    // 清空绘制上下文
     _drawContext.opaqueSurfaces.clear();
+    _drawContext.transparentSurfaces.clear();
 
     // 计算时间差，单位是毫秒
     auto currentTime = std::chrono::steady_clock::now();
@@ -1234,7 +1236,8 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     // 绘制三角形
     // vkCmdDraw(cmd, 3, 1, 0, 0);
     
-    for (const auto& draw : _drawContext.opaqueSurfaces) {
+    // 绘制函数
+    auto draw = [&](const RenderObject& draw) {
         // 绑定几何体管线
         vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
         
@@ -1254,6 +1257,16 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
 
         // 绘制几何体
         vkCmdDrawIndexed(cmd, draw.indexCount, 1, draw.firstIndex, 0, 0);
+    };
+
+    // 绘制不透明几何体
+    for (const auto& obj : _drawContext.opaqueSurfaces) {
+        draw(obj);
+    }
+
+    // 绘制透明几何体
+    for (const auto& obj : _drawContext.transparentSurfaces) {
+        draw(obj);
     }
 
     // 结束渲染
