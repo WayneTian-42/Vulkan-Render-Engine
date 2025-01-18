@@ -1219,45 +1219,67 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     // 开始渲染
     vkCmdBeginRendering(cmd, &renderingInfo);
 
-    // 绑定几何体管线
-    // vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, _trianglePipeline);
+    std::vector<uint32_t> opaqueDraws;
+    opaqueDraws.reserve(_drawContext.opaqueSurfaces.size());
 
-    // 设置viewport
-    VkViewport viewport {};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<float>(_drawImageExtent.width);
-    viewport.height = static_cast<float>(_drawImageExtent.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
-    vkCmdSetViewport(cmd, 0, 1, &viewport);
+    for (uint32_t i = 0; i < _drawContext.opaqueSurfaces.size(); ++i) {
+        opaqueDraws.push_back(i);
+    }
 
-    // 设置裁剪矩形
-    VkRect2D scissor {};
-    scissor.offset = {0, 0};
-    scissor.extent = _drawImageExtent;
-    vkCmdSetScissor(cmd, 0, 1, &scissor);
+    // std::sort(opaqueDraws.begin(), opaqueDraws.end(), [&](uint32_t a, uint32_t b) {
+    //     const auto& drawA = _drawContext.opaqueSurfaces[a];
+    //     const auto& drawB = _drawContext.opaqueSurfaces[b];
+    //     if (drawA.material == drawB.material) {
+    //         return drawA.indexBuffer < drawB.indexBuffer;
+    //     } else {
+    //         return drawA.material < drawB.material;
+    //     }
 
-    // 绘制三角形
-    // vkCmdDraw(cmd, 3, 1, 0, 0);
-    
+    // });
+
+    MaterialPipeline* lastPipeline = nullptr;
+    MaterialInstance* lastMaterial = nullptr;
+    VkBuffer lastIndexBuffer = VK_NULL_HANDLE;
+
     // 绘制函数
     auto draw = [&](const RenderObject& draw) {
-        // 绑定几何体管线
-        vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
-        
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipelineLayout, 
-            0, 1, &sceneDataSet, 0, nullptr);
-        vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipelineLayout,
-            1, 1, &draw.material->materialSet, 0, nullptr);
+        if (draw.material.get() != lastMaterial) {
+            lastMaterial = draw.material.get();
 
-        // 绑定索引缓冲区
-        vkCmdBindIndexBuffer(cmd, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+            if (draw.material->pipeline.get() != lastPipeline) {
+                lastPipeline = draw.material->pipeline.get();
 
+                vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->pipeline);
+
+                vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout, 
+                    0, 1, &sceneDataSet, 0, nullptr);
+                // 设置viewport
+                VkViewport viewport {};
+                viewport.x = 0.0f;
+                viewport.y = 0.0f;
+                viewport.width = static_cast<float>(_drawImageExtent.width);
+                viewport.height = static_cast<float>(_drawImageExtent.height);
+                viewport.minDepth = 0.0f;
+                viewport.maxDepth = 1.0f;
+                vkCmdSetViewport(cmd, 0, 1, &viewport);
+                // 设置裁剪矩形
+                VkRect2D scissor {};
+                scissor.offset = {0, 0};
+                scissor.extent = _drawImageExtent;
+                vkCmdSetScissor(cmd, 0, 1, &scissor);
+            }
+            vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, draw.material->pipeline->layout,
+                1, 1, &draw.material->materialSet, 0, nullptr);
+        }
+        if (draw.indexBuffer != lastIndexBuffer) {
+            lastIndexBuffer = draw.indexBuffer;
+            // 绑定索引缓冲区
+            vkCmdBindIndexBuffer(cmd, draw.indexBuffer, 0, VK_INDEX_TYPE_UINT32);
+        }
         GPUDrawPushConstants drawPushConstants;
         drawPushConstants.worldMatrix = draw.transform;
         drawPushConstants.vertexBuffer = draw.vertexBufferAddress;
-        vkCmdPushConstants(cmd, draw.material->pipeline->pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0,
+        vkCmdPushConstants(cmd, draw.material->pipeline->layout, VK_SHADER_STAGE_VERTEX_BIT, 0,
             sizeof(GPUDrawPushConstants), &drawPushConstants);
 
         // 绘制几何体
@@ -1269,8 +1291,8 @@ void VulkanEngine::draw_geometry(VkCommandBuffer cmd)
     };
 
     // 绘制不透明几何体
-    for (const auto& obj : _drawContext.opaqueSurfaces) {
-        draw(obj);
+    for (const auto& obj : opaqueDraws) {
+        draw(_drawContext.opaqueSurfaces[obj]);
     }
 
     // 绘制透明几何体

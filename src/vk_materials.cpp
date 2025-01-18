@@ -47,8 +47,8 @@ void GLTFMetallicRoughness::build_pipelines() {
     VK_CHECK(vkCreatePipelineLayout(VulkanEngine::Get().get_device(), &pipelineLayoutInfo, nullptr, &pipelineLayout));
 
     // 设定管线布局
-    opaquePipeline.pipelineLayout = pipelineLayout;
-    transparentPipeline.pipelineLayout = pipelineLayout;
+    opaquePipeline.layout = pipelineLayout;
+    transparentPipeline.layout = pipelineLayout;
 
     // 创建管线
     vkutil::PipelineBuilder pipelineBuilder;
@@ -83,7 +83,7 @@ void GLTFMetallicRoughness::build_pipelines() {
 void GLTFMetallicRoughness::clear_resources(VkDevice device) {
 
     vkDestroyDescriptorSetLayout(device, materialSetLayout, nullptr);
-    vkDestroyPipelineLayout(device, opaquePipeline.pipelineLayout, nullptr);
+    vkDestroyPipelineLayout(device, opaquePipeline.layout, nullptr);
 
     vkDestroyPipeline(device, opaquePipeline.pipeline, nullptr);
     vkDestroyPipeline(device, transparentPipeline.pipeline, nullptr);

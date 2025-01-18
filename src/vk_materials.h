@@ -13,7 +13,7 @@ enum class MaterialPass : uint8_t {
 // 材质管线
 struct MaterialPipeline {
 	VkPipeline pipeline;
-	VkPipelineLayout pipelineLayout;
+	VkPipelineLayout layout;
 };
 
 // 材质实例
