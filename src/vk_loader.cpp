@@ -17,6 +17,215 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb_image.h>
 
+namespace material_loader {
+
+std::shared_ptr<GLTFMaterial> load_pbr_material(
+    fastgltf::Material& material,
+    LoadedGLTF& gltf,
+    void* materialData,
+    int dataIndex,
+    size_t materialStride,
+    const std::vector<AllocatedImage>& images,
+    const std::vector<VkSampler>& samplers,
+    const std::vector<fastgltf::Texture>& textures)
+{
+    auto newMaterial = std::make_shared<GLTFMaterial>();
+    newMaterial->type = GLTFMaterial::Type::PBR;
+    
+    // 计算当前材质的数据偏移
+    char* currentMaterialData = static_cast<char*>(materialData) + dataIndex * materialStride;
+    
+    // 创建PBR材质常量并写入内存
+    auto* pbrConstants = reinterpret_cast<PBRMaterial::MaterialConstants*>(currentMaterialData);
+    pbrConstants->baseColorFactor = glm::make_vec4(material.pbrData.baseColorFactor.data());
+    pbrConstants->metallicRoughnessFactor = glm::vec4(
+        material.pbrData.metallicFactor,
+        material.pbrData.roughnessFactor,
+        0.0f, 0.0f);
+    pbrConstants->emissiveFactor = glm::vec4(
+        material.emissiveFactor[0],
+        material.emissiveFactor[1],
+        material.emissiveFactor[2],
+        1.0f);
+    
+    // 设置法线贴图强度
+    if (material.normalTexture.has_value()) {
+        pbrConstants->normalScale.x = material.normalTexture->scale;
+    }
+    
+    // 设置环境光遮蔽强度
+    if (material.occlusionTexture.has_value()) {
+        pbrConstants->occlusionStrength.x = material.occlusionTexture->strength;
+    }
+    
+    // 创建材质资源
+    PBRMaterial::MaterialResources materialResources{};
+    materialResources.materialBuffer = gltf.sceneUniformBuffer.buffer;
+    materialResources.materialOffset = dataIndex * materialStride;
+    
+    // 设置默认纹理和采样器
+    materialResources.baseColorImage = VulkanEngine::Get().get_white_image();
+    materialResources.baseColorSampler = VulkanEngine::Get().get_sampler_linear();
+    materialResources.metallicRoughnessImage = VulkanEngine::Get().get_white_image();
+    materialResources.metallicRoughnessSampler = VulkanEngine::Get().get_sampler_linear();
+    materialResources.normalImage = VulkanEngine::Get().get_white_image();
+    materialResources.normalSampler = VulkanEngine::Get().get_sampler_linear();
+    materialResources.emissiveImage = VulkanEngine::Get().get_black_image();
+    materialResources.emissiveSampler = VulkanEngine::Get().get_sampler_linear();
+    materialResources.occlusionImage = VulkanEngine::Get().get_white_image();
+    materialResources.occlusionSampler = VulkanEngine::Get().get_sampler_linear();
+    
+    // 加载基础颜色贴图
+    if (material.pbrData.baseColorTexture.has_value()) {
+        size_t imageIndex = textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+        materialResources.baseColorImage = images[imageIndex];
+        materialResources.baseColorSampler = samplers[samplerIndex];
+    }
+    
+    // 加载金属度-粗糙度贴图
+    if (material.pbrData.metallicRoughnessTexture.has_value()) {
+        size_t imageIndex = textures[material.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value();
+        materialResources.metallicRoughnessImage = images[imageIndex];
+        materialResources.metallicRoughnessSampler = samplers[samplerIndex];
+    }
+    
+    // 加载法线贴图
+    if (material.normalTexture.has_value()) {
+        size_t imageIndex = textures[material.normalTexture->textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.normalTexture->textureIndex].samplerIndex.value();
+        materialResources.normalImage = images[imageIndex];
+        materialResources.normalSampler = samplers[samplerIndex];
+    }
+    
+    // 加载自发光贴图
+    if (material.emissiveTexture.has_value()) {
+        size_t imageIndex = textures[material.emissiveTexture->textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.emissiveTexture->textureIndex].samplerIndex.value();
+        materialResources.emissiveImage = images[imageIndex];
+        materialResources.emissiveSampler = samplers[samplerIndex];
+    }
+    
+    // 加载环境光遮蔽贴图
+    if (material.occlusionTexture.has_value()) {
+        size_t imageIndex = textures[material.occlusionTexture->textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.occlusionTexture->textureIndex].samplerIndex.value();
+        materialResources.occlusionImage = images[imageIndex];
+        materialResources.occlusionSampler = samplers[samplerIndex];
+    }
+    
+    // 根据材质的alpha模式设置材质通道
+    MaterialPass passType = MaterialPass::MainColor;
+    if (material.alphaMode == fastgltf::AlphaMode::Blend) {
+        passType = MaterialPass::Transparent;
+    }
+    
+    // 创建材质实例
+    newMaterial->instance = gltf.pbrMaterial->create_material_instance(
+        VulkanEngine::Get().get_device(), 
+        passType,
+        materialResources,
+        *pbrConstants,
+        gltf.descriptorAllocator
+    );
+    
+    return newMaterial;
+}
+
+std::shared_ptr<GLTFMaterial> load_metallic_roughness_material(
+    fastgltf::Material& material,
+    LoadedGLTF& gltf,
+    void* materialData,
+    int dataIndex,
+    size_t materialStride,
+    const std::vector<AllocatedImage>& images,
+    const std::vector<VkSampler>& samplers,
+    const std::vector<fastgltf::Texture>& textures)
+{
+    auto newMaterial = std::make_shared<GLTFMaterial>();
+    newMaterial->type = GLTFMaterial::Type::MetallicRoughness;
+    
+    // 计算当前材质的数据偏移
+    char* currentMaterialData = static_cast<char*>(materialData) + dataIndex * materialStride;
+    
+    // 创建金属粗糙度材质常量并写入内存
+    auto* metallicConstants = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants*>(currentMaterialData);
+    metallicConstants->colorFactors = glm::make_vec4(material.pbrData.baseColorFactor.data());
+    metallicConstants->metalRoughFactors.x = material.pbrData.metallicFactor;
+    metallicConstants->metalRoughFactors.y = material.pbrData.roughnessFactor;
+    
+    // 创建材质资源
+    GLTFMetallicRoughness::MaterialResources materialResources{};
+    materialResources.materialBuffer = gltf.sceneUniformBuffer.buffer;
+    materialResources.materialOffset = dataIndex * materialStride;
+    
+    // 设置默认纹理和采样器
+    materialResources.colorImage = VulkanEngine::Get().get_white_image();
+    materialResources.colorSampler = VulkanEngine::Get().get_sampler_linear();
+    materialResources.metallicRoughnessImage = VulkanEngine::Get().get_white_image();
+    materialResources.metallicRoughnessSampler = VulkanEngine::Get().get_sampler_linear();
+    
+    // 加载基础颜色贴图
+    if (material.pbrData.baseColorTexture.has_value()) {
+        size_t imageIndex = textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
+        materialResources.colorImage = images[imageIndex];
+        materialResources.colorSampler = samplers[samplerIndex];
+    }
+    
+    // 加载金属度-粗糙度贴图
+    if (material.pbrData.metallicRoughnessTexture.has_value()) {
+        size_t imageIndex = textures[material.pbrData.metallicRoughnessTexture.value().textureIndex].imageIndex.value();
+        size_t samplerIndex = textures[material.pbrData.metallicRoughnessTexture.value().textureIndex].samplerIndex.value();
+        materialResources.metallicRoughnessImage = images[imageIndex];
+        materialResources.metallicRoughnessSampler = samplers[samplerIndex];
+    }
+    
+    // 根据材质的alpha模式设置材质通道
+    MaterialPass passType = MaterialPass::MainColor;
+    if (material.alphaMode == fastgltf::AlphaMode::Blend) {
+        passType = MaterialPass::Transparent;
+    }
+    
+    // 创建材质实例
+    newMaterial->instance = gltf.metallicRoughnessMaterial->create_material_instance(
+        VulkanEngine::Get().get_device(), 
+        passType,
+        materialResources,
+        *metallicConstants,
+        gltf.descriptorAllocator
+    );
+    
+    return newMaterial;
+}
+
+std::shared_ptr<GLTFMaterial> load_material(
+    fastgltf::Material& material,
+    LoadedGLTF& gltf,
+    void* materialData,
+    int dataIndex,
+    size_t materialStride,
+    const std::vector<AllocatedImage>& images,
+    const std::vector<VkSampler>& samplers,
+    const std::vector<fastgltf::Texture>& textures)
+{
+    // 根据材质属性决定使用哪种材质类型
+    // bool hasNormalMap = material.normalTexture.has_value();
+    bool hasEmissiveMap = material.emissiveTexture.has_value();
+    bool hasOcclusionMap = material.occlusionTexture.has_value();
+    
+    if (hasEmissiveMap || hasOcclusionMap) {
+        return load_pbr_material(material, gltf, materialData, dataIndex, materialStride, 
+            images, samplers, textures);
+    } else {
+        return load_metallic_roughness_material(material, gltf, materialData, dataIndex, materialStride, 
+            images, samplers, textures);
+    }
+}
+
+} // namespace material_loader
+
 /**
  * @brief 根据gltf过滤器提取vk过滤器
  * @param filter gltf过滤器
@@ -214,6 +423,9 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
     // scene->engine = &(VulkanEngine::Get());
     auto& gltf = *(scene.get());
 
+    // 初始化材质系统
+    gltf.init_material_systems();
+
     // 创建GLTF数据缓冲区并加载文件内容
     fastgltf::GltfDataBuffer data;
     data.loadFromFile(filePath);
@@ -325,20 +537,30 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
         }
     }
 
-    // 创建buffer存储材质数据
-    gltf.sceneUniformBuffer = VulkanEngine::Get().create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants) * asset.materials.size(),
-        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, "MaterialBufferFromVector");
+    // 计算材质常量缓冲区大小
+    size_t metallicRoughnessSize = sizeof(GLTFMetallicRoughness::MaterialConstants);
+    size_t pbrSize = sizeof(PBRMaterial::MaterialConstants);
+    size_t maxMaterialSize = std::max(metallicRoughnessSize, pbrSize);
+    
+    // 创建统一的材质常量缓冲区，使用最大的材质常量大小
+    gltf.sceneUniformBuffer = VulkanEngine::Get().create_buffer(
+        maxMaterialSize * asset.materials.size(),
+        VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 
+        VMA_MEMORY_USAGE_CPU_TO_GPU, 
+        "MaterialBuffer");
 
-    auto* sceneConstants = static_cast<GLTFMetallicRoughness::MaterialConstants*>
-        (gltf.sceneUniformBuffer.allocationInfo.pMappedData);
+    // 获取缓冲区映射地址
+    void* materialData = gltf.sceneUniformBuffer.allocationInfo.pMappedData;
 
     int dataIndex = 0;
     // 加载材质信息
     int unnamedMaterialCounter = 0;
     for (auto& material : asset.materials) {
         // 创建材质
-        auto newMaterial = std::make_shared<GLTFMaterial>();
+        auto newMaterial = material_loader::load_material(material, gltf, materialData, dataIndex, maxMaterialSize, 
+            images, gltf.samplers, asset.textures);
         materials.push_back(newMaterial);
+        
         // 存储材质
         std::string materialName;
         if (material.name.empty()) {
@@ -347,44 +569,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
             materialName = static_cast<std::string>(material.name);
         }
         gltf.materials[materialName] = newMaterial;
-
-        // 设置材质常量
-        GLTFMetallicRoughness::MaterialConstants materialConstants;
-        materialConstants.colorFactors = glm::make_vec4(material.pbrData.baseColorFactor.data());
-        materialConstants.metalRoughFactors.x = material.pbrData.metallicFactor;
-        materialConstants.metalRoughFactors.y = material.pbrData.roughnessFactor;
-        // 将材质常量存储到buffer中
-        sceneConstants[dataIndex] = materialConstants;
-
-        // 根据材质的alpha模式设置材质通道
-        MaterialPass passType = MaterialPass::MainColor;
-        if (material.alphaMode == fastgltf::AlphaMode::Blend) {
-            passType = MaterialPass::Transparent;
-        }
-
-        // 创建材质资源
-        GLTFMetallicRoughness::MaterialResources materialResources;
-        // 设置默认纹理
-        materialResources.colorImage = VulkanEngine::Get().get_white_image();
-        materialResources.colorSampler = VulkanEngine::Get().get_sampler_linear();
-        materialResources.metallicRoughnessImage = VulkanEngine::Get().get_white_image();
-        materialResources.metallicRoughnessSampler = VulkanEngine::Get().get_sampler_linear();
-
-        // 设置uniform buffer
-        materialResources.materialBuffer = gltf.sceneUniformBuffer.buffer;
-        materialResources.materialOffset = dataIndex * sizeof(GLTFMetallicRoughness::MaterialConstants);
-
-        // 从gltf文件中获取纹理
-        if (material.pbrData.baseColorTexture.has_value()) {
-            size_t imageIndex = asset.textures[material.pbrData.baseColorTexture.value().textureIndex].imageIndex.value();
-            size_t samplerIndex = asset.textures[material.pbrData.baseColorTexture.value().textureIndex].samplerIndex.value();
-
-            // materialResources.colorImage = *(images[imageIndex]);
-            materialResources.colorImage = images[imageIndex];
-            materialResources.colorSampler = gltf.samplers[samplerIndex];
-        }
-        // 创建材质实例
-        newMaterial->instance = VulkanEngine::Get().create_metallic_roughness_instance(passType, materialResources, materialConstants, gltf.descriptorAllocator);
 
         dataIndex++;
     }
@@ -642,6 +826,16 @@ void LoadedGLTF::clear_all()
 {
     VkDevice device = VulkanEngine::Get().get_device();
 
+    // 清理材质系统
+    if (metallicRoughnessMaterial) {
+        metallicRoughnessMaterial->clear_resources(device);
+        metallicRoughnessMaterial.reset();
+    }
+    if (pbrMaterial) {
+        pbrMaterial->clear_resources(device);
+        pbrMaterial.reset();
+    }
+
     // 先销毁描述符池和统一缓冲区
     descriptorAllocator.destroy_pool(device);
     VulkanEngine::Get().destroy_buffer(sceneUniformBuffer);
@@ -798,4 +992,12 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
     }
 
     return newImage;
+}
+
+void LoadedGLTF::init_material_systems() {
+    metallicRoughnessMaterial = std::make_shared<GLTFMetallicRoughness>();
+    metallicRoughnessMaterial->build_pipelines();
+    
+    pbrMaterial = std::make_shared<PBRMaterial>();
+    pbrMaterial->build_pipelines();
 }

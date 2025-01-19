@@ -9,6 +9,11 @@
 
 struct GLTFMaterial {
     MaterialInstance instance;
+    // 添加材质类型枚举
+    enum class Type {
+        MetallicRoughness,
+        PBR
+    } type;
 };
 
 // 几何体的边界信息
@@ -138,6 +143,11 @@ struct LoadedGLTF : public IRenderable {
     // 场景统一缓冲区，用于存储场景相关的数据
     AllocatedBuffer sceneUniformBuffer;
 
+    //todo: 将材质管理器抽象成一个类，并使用单例模式
+    // 添加材质管理器
+    std::shared_ptr<GLTFMetallicRoughness> metallicRoughnessMaterial;
+    std::shared_ptr<PBRMaterial> pbrMaterial;
+
     // todo: 使用shared_ptr或者weak_ptr时出现问题
     // *使用单例模式，规避指针的各种问题
     // 使用shared_ptr时，会出现循环引用，导致无法释放资源
@@ -157,6 +167,11 @@ public:
      * @param drawContext 绘制上下文
      */
     virtual void draw(const glm::mat4& topMatrix, DrawContext& drawContext) override;
+
+    /**
+     * @brief 初始化材质系统
+     */
+    void init_material_systems();
 
 private:
 
@@ -190,3 +205,48 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view path
  * @return 加载的图片或者空
  */
 std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::Image& image);
+
+// 材质加载器命名空间
+namespace material_loader {
+    /**
+     * @brief 加载PBR材质
+     */
+    std::shared_ptr<GLTFMaterial> load_pbr_material(
+        fastgltf::Material& material,
+        LoadedGLTF& gltf,
+        void* materialData,
+        int dataIndex,
+        size_t materialStride,
+        const std::vector<AllocatedImage>& images,
+        const std::vector<VkSampler>& samplers,
+        const std::vector<fastgltf::Texture>& textures
+    );
+
+    /**
+     * @brief 加载金属粗糙度材质
+     */
+    std::shared_ptr<GLTFMaterial> load_metallic_roughness_material(
+        fastgltf::Material& material,
+        LoadedGLTF& gltf,
+        void* materialData,
+        int dataIndex,
+        size_t materialStride,
+        const std::vector<AllocatedImage>& images,
+        const std::vector<VkSampler>& samplers,
+        const std::vector<fastgltf::Texture>& textures
+    );
+
+    /**
+     * @brief 根据材质类型加载对应的材质
+     */
+    std::shared_ptr<GLTFMaterial> load_material(
+        fastgltf::Material& material,
+        LoadedGLTF& gltf,
+        void* materialData,
+        int dataIndex,
+        size_t materialStride,
+        const std::vector<AllocatedImage>& images,
+        const std::vector<VkSampler>& samplers,
+        const std::vector<fastgltf::Texture>& textures
+    );
+}

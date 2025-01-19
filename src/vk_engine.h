@@ -181,6 +181,12 @@ public:
 	AllocatedImage get_white_image() const { return _whiteImage; }
 
 	/**
+	 * @brief 获取黑色图像
+	 * @return AllocatedImage 黑色图像
+	 */
+	AllocatedImage get_black_image() const { return _blackImage; }
+
+	/**
 	 * @brief 获取线性采样器
 	 * @return VkSampler 线性采样器
 	 */
@@ -219,11 +225,6 @@ public:
 	 * @param image 图像
 	 */
 	void destroy_image(const AllocatedImage& image);
-	
-	MaterialInstance create_metallic_roughness_instance(MaterialPass pass, const GLTFMetallicRoughness::MaterialResources& materialResources, const GLTFMetallicRoughness::MaterialConstants& materialConstants, DescriptorAllocatorGrowable& descriptorAllocator)
-	{
-		return _metalRoughnessMaterial.create_material_instance(_device, pass, materialResources, materialConstants, descriptorAllocator);
-	}
 
 private:
 	/**

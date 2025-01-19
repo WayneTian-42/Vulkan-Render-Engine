@@ -782,14 +782,15 @@ void VulkanEngine::init_default_data()
     }
 
     // 加载gltf文件
-    // std::string gltfPath = "../assets/structure.glb";
-    // auto structureGLTF = load_gltf_files(gltfPath);
+
+    std::string gltfPath = "../assets/structure.glb";
+    auto structureGLTF = load_gltf_files(gltfPath);
     
-    // assert(structureGLTF.has_value());
+    assert(structureGLTF.has_value());
 
-    // _loadedGLTFs["structure"] = *structureGLTF;
+    _loadedGLTFs["structure"] = *structureGLTF;
 
-    std::string gltfPath = "../assets/DamagedHelmet.glb";
+    gltfPath = "../assets/DamagedHelmet.glb";
     auto damagedHelmetGLTF = load_gltf_files(gltfPath);
     
     assert(damagedHelmetGLTF.has_value());
