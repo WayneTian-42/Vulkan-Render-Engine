@@ -432,9 +432,6 @@ void VulkanEngine::init_pipelines()
     init_background_pipelines();
     init_triangle_pipeline();
     init_mesh_pipeline();
-
-    _metalRoughnessMaterial.build_pipelines();
-
 }
 
 void VulkanEngine::init_background_pipelines()
@@ -660,7 +657,7 @@ void VulkanEngine::init_mesh_pipeline()
 }
 
 void VulkanEngine::init_default_data()
-{
+{    
     // 创建顶点数据
     std::array<Vertex, 4> rect_vertices;
 
@@ -738,27 +735,43 @@ void VulkanEngine::init_default_data()
         destroy_image(_errorCheckerboardImage);
     });
 
-    GLTFMetallicRoughness::MaterialResources resources;
-    resources.colorImage = _whiteImage;
-    resources.colorSampler = _defaultSamplerLinear;
-    resources.metallicRoughnessImage = _whiteImage;
-    resources.metallicRoughnessSampler = _defaultSamplerLinear;
+    // 创建默认材质数据
+    size_t sceneParamsSize = sizeof(GPUSceneData);
+    size_t materialParamsSize = sizeof(GLTFMetallicRoughness::MaterialConstants);
 
-    // 创建ubo
-    AllocatedBuffer materialbuffer = create_buffer(sizeof(GLTFMetallicRoughness::MaterialConstants), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU);
+    // 创建材质缓冲区
+    AllocatedBuffer materialbuffer = create_buffer(materialParamsSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VMA_MEMORY_USAGE_CPU_TO_GPU, "MaterialBuffer");
 
-    GLTFMetallicRoughness::MaterialConstants* sceneUniformData = static_cast<GLTFMetallicRoughness::MaterialConstants*>(materialbuffer.allocation->GetMappedData());
-    sceneUniformData->colorFactors = glm::vec4(1.f);
-    sceneUniformData->metalRoughFactors = glm::vec4(1.f, 0.5f,0.f, 0.f);
+    // 获取材质缓冲区映射地址
+    void* data;
+    vmaMapMemory(_allocator, materialbuffer.allocation, &data);
 
+    // 创建材质常量并写入内存
+    auto sceneUniformData = reinterpret_cast<GLTFMetallicRoughness::MaterialConstants*>(data);
+    sceneUniformData->colorFactors = glm::vec4(1.0f);
+    sceneUniformData->metalRoughFactors = glm::vec4(0.0f, 0.5f, 0.0f, 0.0f);
+
+    // 解除映射
+    vmaUnmapMemory(_allocator, materialbuffer.allocation);
+
+    // 创建材质资源
+    GLTFMetallicRoughness::MaterialResources resources{};
+    resources.colorImage = get_white_image();
+    resources.colorSampler = get_sampler_linear();
+    resources.metallicRoughnessImage = get_white_image();
+    resources.metallicRoughnessSampler = get_sampler_linear();
     resources.materialBuffer = materialbuffer.buffer;
     resources.materialOffset = 0;
 
-    _defaultInstance = _metalRoughnessMaterial.create_material_instance(_device, MaterialPass::MainColor, resources, *sceneUniformData, _globalDescriptorAllocator);
+    // 初始化材质管理器
+    MaterialManager::Get().init_material_systems();
+
+    // 创建默认材质实例
+    _defaultInstance = MaterialManager::Get().get_metallic_roughness_material()->create_material_instance(
+        _device, MaterialPass::MainColor, resources, *sceneUniformData, _globalDescriptorAllocator);
 
     _mainDeletionQueue.push_function([this, materialbuffer]() {
         destroy_buffer(materialbuffer);
-        _metalRoughnessMaterial.clear_resources(_device);
     });
 
     _testMeshes = load_gltf_meshes("../assets/basicmesh.glb").value();
@@ -796,6 +809,7 @@ void VulkanEngine::init_default_data()
     assert(damagedHelmetGLTF.has_value());
 
     _loadedGLTFs["DamagedHelmet"] = *damagedHelmetGLTF;
+
 }
 
 void VulkanEngine::init_imgui()
@@ -1072,9 +1086,11 @@ void VulkanEngine::cleanup()
 {
     if (_isInitialized) {
         // 按照创建的反序销毁并释放资源
-
-        // GPU等待
+        // 等待设备空闲
         vkDeviceWaitIdle(_device);
+
+        // 清理材质管理器
+        MaterialManager::Get().cleanup();
 
         // 销毁gltf模型
         _loadedGLTFs.clear();
@@ -1108,21 +1124,27 @@ void VulkanEngine::cleanup()
         // }
 
         // 执行删除队列
+
+
+        // 清理其他资源
         _mainDeletionQueue.flush();
 
         destroy_swapchain();
 
+        // 销毁表面
         vkDestroySurfaceKHR(_instance, _surface, nullptr);
-        vkDestroyDevice(_device, nullptr);
 
-        vkb::destroy_debug_utils_messenger(_instance, _debugMessenger, nullptr);
+        // 销毁设备
+        vkDestroyDevice(_device, nullptr);
+        vkb::destroy_debug_utils_messenger(_instance, _debugMessenger);
+
+        // 销毁实例
         vkDestroyInstance(_instance, nullptr);
 
-        // 销毁SDL窗口，SDL是C语言库，需要手动销毁
+        // 销毁窗口
         SDL_DestroyWindow(_window);
     }
-
-    // clear engine pointer
+    // 销毁引擎
     loadedEngine = nullptr;
 }
 

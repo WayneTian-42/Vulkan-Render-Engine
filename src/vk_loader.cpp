@@ -122,7 +122,7 @@ std::shared_ptr<GLTFMaterial> load_pbr_material(
     }
     
     // 创建材质实例
-    newMaterial->instance = gltf.pbrMaterial->create_material_instance(
+    newMaterial->instance = MaterialManager::Get().get_pbr_material()->create_material_instance(
         VulkanEngine::Get().get_device(), 
         passType,
         materialResources,
@@ -189,7 +189,7 @@ std::shared_ptr<GLTFMaterial> load_metallic_roughness_material(
     }
     
     // 创建材质实例
-    newMaterial->instance = gltf.metallicRoughnessMaterial->create_material_instance(
+    newMaterial->instance = MaterialManager::Get().get_metallic_roughness_material()->create_material_instance(
         VulkanEngine::Get().get_device(), 
         passType,
         materialResources,
@@ -423,8 +423,6 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
     // scene->engine = &(VulkanEngine::Get());
     auto& gltf = *(scene.get());
 
-    // 初始化材质系统
-    gltf.init_material_systems();
 
     // 创建GLTF数据缓冲区并加载文件内容
     fastgltf::GltfDataBuffer data;
@@ -992,12 +990,4 @@ std::optional<AllocatedImage> load_gltf_image(fastgltf::Asset& asset, fastgltf::
     }
 
     return newImage;
-}
-
-void LoadedGLTF::init_material_systems() {
-    metallicRoughnessMaterial = std::make_shared<GLTFMetallicRoughness>();
-    metallicRoughnessMaterial->build_pipelines();
-    
-    pbrMaterial = std::make_shared<PBRMaterial>();
-    pbrMaterial->build_pipelines();
 }

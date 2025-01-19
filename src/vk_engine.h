@@ -449,8 +449,6 @@ private:
 	VkDescriptorSetLayout _singleImageDescriptorLayout;
 
 	// 材质
-	// 具有金属度和粗糙度的材质
-	GLTFMetallicRoughness _metalRoughnessMaterial;
 	// 默认材质实例，用于绘制物体
 	MaterialInstance _defaultInstance;
 

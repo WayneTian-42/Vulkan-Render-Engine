@@ -2,6 +2,7 @@
 
 #include "vk_types.h"
 #include "vk_materials.h"
+#include "vk_material_manager.h"
 
 #include <fastgltf/types.hpp>
 #include <unordered_map>
@@ -69,6 +70,8 @@ struct DrawContext {
 
 // 接口类，可绘制对象
 class IRenderable {
+public:
+    virtual ~IRenderable() = default;
 
     /**
      * @brief 绘制
@@ -117,9 +120,6 @@ struct MeshNode : public Node {
     virtual void draw(const glm::mat4& topMatrix, DrawContext& drawContext) override;
 };
 
-// 前向声明
-class VulkanEngine;
-
 struct LoadedGLTF : public IRenderable {
     // 存储网格资源，key为网格名称，value为网格资源
     std::unordered_map<std::string, std::shared_ptr<MeshAsset>> meshes;
@@ -167,11 +167,6 @@ public:
      * @param drawContext 绘制上下文
      */
     virtual void draw(const glm::mat4& topMatrix, DrawContext& drawContext) override;
-
-    /**
-     * @brief 初始化材质系统
-     */
-    void init_material_systems();
 
 private:
 
