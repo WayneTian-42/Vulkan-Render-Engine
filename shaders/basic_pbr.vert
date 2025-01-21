@@ -10,6 +10,8 @@
 layout (location = 0) out vec3 fragNormal;
 layout (location = 1) out vec3 fragColor;
 layout (location = 2) out vec2 fragUV;
+layout (location = 3) out vec3 fragPosition;
+layout (location = 4) out mat3 TBNMatrix;
 
 struct Vertex {
     vec3 position;
@@ -17,6 +19,7 @@ struct Vertex {
     vec3 normal;
     float uv_y;
     vec4 color;
+    vec4 tangent;
 };
 
 layout (buffer_reference, std430) buffer VertexBuffer {
@@ -31,13 +34,21 @@ layout (push_constant) uniform constants {
 void main() {
     Vertex vertex = PushConstants.vertexBuffer.vertices[gl_VertexIndex];
     
-    vec4 position = vec4(vertex.position, 1.0);
+    vec4 position = PushConstants.renderMatrix * vec4(vertex.position, 1.0);
 
-    gl_Position = sceneData.viewProj * PushConstants.renderMatrix * position;
+    gl_Position = sceneData.viewProj * position;
 
     fragNormal = (PushConstants.renderMatrix * vec4(vertex.normal, 0.0)).xyz;
 
-    fragColor = vertex.color.rgb * materialData.colorFactors.rgb;
+    fragColor = vertex.color.rgb;
 
     fragUV = vec2(vertex.uv_x, vertex.uv_y);
+
+    fragPosition = position.xyz;
+
+    vec3 T = normalize(vertex.tangent.xyz);
+    vec3 N = normalize(vertex.normal);
+    vec3 B = normalize(cross(N, T) * vertex.tangent.w);
+
+    TBNMatrix = mat3(T, B, N);
 }

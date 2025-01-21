@@ -1188,9 +1188,10 @@ void VulkanEngine::update_scene()
     _sceneData.viewProj = _sceneData.proj * _sceneData.view;
 
     // 默认光源属性
-    _sceneData.lightColor = glm::vec4(1.f);
+    // _sceneData.lightColor = glm::vec4(1.f, 1.f, 1.f, 10.0f);
     _sceneData.ambientColor = glm::vec4(0.1f);
-    _sceneData.lightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+    // _sceneData.lightDirection = glm::vec4(0.0f, 1.0f, 0.5f, 1.0f);
+    _sceneData.viewPosition = glm::vec4(_mainCamera.get_position(), 1.0f);
 
     // for (int x = -3; x < 3; ++x) {
     //     glm::mat4 scale = glm::scale(glm::mat4(1.0f), glm::vec3{0.2});
@@ -1607,6 +1608,18 @@ void VulkanEngine::run()
             ImGui::InputFloat4("Push Constant vec3: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data3)));
             ImGui::InputFloat4("Push Constant vec4: ", const_cast<float*>(glm::value_ptr(pipeline.pushConstants.data4)));
 
+        }
+        ImGui::End();
+
+        if (ImGui::Begin("Scene")) {
+            // 输入控制相机位置
+            glm::vec3 position = _mainCamera.get_position();
+            ImGui::InputFloat3("Camera Position: ", const_cast<float*>(glm::value_ptr(position)));
+            _mainCamera.set_position(position);
+
+            ImGui::InputFloat4("Light Color: ", const_cast<float*>(glm::value_ptr(_sceneData.lightColor)));
+
+            ImGui::InputFloat4("Light Direction: ", static_cast<float*>(glm::value_ptr(_sceneData.lightDirection)));
         }
         ImGui::End();
 

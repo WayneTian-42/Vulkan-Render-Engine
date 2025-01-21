@@ -268,6 +268,64 @@ VkSamplerMipmapMode extract_mipmap_mode(fastgltf::Filter filter) {
     }
 }
 
+/**
+ * @brief 计算切线
+ * @param indices 索引
+ * @param vertices 顶点
+ */
+void CalculateTangent(const std::vector<uint32_t>& indices, std::vector<Vertex>& vertices)
+{
+    // 初始化切线为0
+    for (auto& vertex : vertices) {
+        vertex.tangent = glm::vec4(0.f);
+    }
+
+    // 遍历三角形
+    for (size_t i = 0; i < indices.size(); i += 3) {
+        auto index0 = indices[i];
+        auto index1 = indices[i + 1];
+        auto index2 = indices[i + 2];
+
+        auto& v0 = vertices[index0];
+        auto& v1 = vertices[index1];
+        auto& v2 = vertices[index2];
+
+        auto e1 = v1.position - v0.position;
+        auto e2 = v2.position - v0.position;
+
+        auto uv1 = glm::vec2(v1.uv_x, v1.uv_y) - glm::vec2(v0.uv_x, v0.uv_y);
+        auto uv2 = glm::vec2(v2.uv_x, v2.uv_y) - glm::vec2(v0.uv_x, v0.uv_y);
+
+        // 计算切线
+        float f = 1.f / (uv1.x * uv2.y - uv2.x * uv1.y);
+        glm::vec3 tangent = {
+            f * (e1.x * uv2.y - e2.x * uv1.y),
+            f * (e1.y * uv2.y - e2.y * uv1.y),
+            f * (e1.z * uv2.y - e2.z * uv1.y)
+        };
+
+        // 将切线添加到顶点中
+        v0.tangent += glm::vec4(tangent, 0.f);
+        v1.tangent += glm::vec4(tangent, 0.f);
+        v2.tangent += glm::vec4(tangent, 0.f);
+    }
+
+    // 归一化切线
+    for (auto& vertex : vertices) {
+        auto t = glm::vec3(vertex.tangent);
+
+        // Gram-Schmidt正交化
+        t = glm::normalize(t - glm::dot(t, vertex.normal) * vertex.normal);
+
+        auto b = glm::cross(vertex.normal, t);
+
+        // 计算手性
+        auto w = (glm::dot(glm::cross(vertex.normal, t), b) < 0.f) ? -1.f : 1.f;
+
+        vertex.tangent = glm::vec4(t, w);
+    }
+}
+
 // filesystem::path是 C++17 引入的文件系统库中的一个类，用于表示和操作文件路径。
 // 它提供了一种跨平台的方式来处理文件路径，能够自动处理不同操作系统之间的路径分隔符差异
 // 加载GLTF文件并返回MeshAsset集合
@@ -631,6 +689,11 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
                         vertices[initial_vtx + index] = newVertex;
                     });
             }
+            // 获取p的全部属性
+            // auto attributes = p.attributes;
+            // for (auto& attribute : attributes) {
+            //     fmt::println("attribute: {}", attribute.first);
+            // }
             
             // 加载法线数据（如果存在）
             auto normals = p.findAttribute("NORMAL");
@@ -658,6 +721,18 @@ std::optional<std::shared_ptr<LoadedGLTF>> load_gltf_files(std::string_view file
                         vertices[initial_vtx + index].uv_x = uv.x;
                         vertices[initial_vtx + index].uv_y = uv.y;
                     });
+            }
+
+            // 加载切线数据（如果存在）
+            auto tangents = p.findAttribute("TANGENT");
+            if (tangents != p.attributes.end()) {
+                fastgltf::iterateAccessorWithIndex<glm::vec4>(asset, asset.accessors[tangents->second], 
+                    [&](glm::vec4 tangent, size_t index) {
+                        vertices[initial_vtx + index].tangent = tangent;
+                    });
+            }
+            else {
+                CalculateTangent(indices, vertices);
             }
 
             // 设置表面材质，如果材质索引存在，则使用材质索引，否则使用默认材质

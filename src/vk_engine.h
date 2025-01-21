@@ -59,6 +59,7 @@ struct GPUSceneData {
 	glm::vec4 ambientColor;
 	glm::vec4 lightDirection;
 	glm::vec4 lightColor;
+	glm::vec4 viewPosition;
 };
 
 // 计算管线常量

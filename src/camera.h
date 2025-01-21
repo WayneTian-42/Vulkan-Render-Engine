@@ -30,7 +30,17 @@ public:
      */
     glm::mat4 get_rotation_matrix() const;
 
+    /**
+     * @brief 设置位置
+     * @param position 位置
+     */
     void set_position(glm::vec3 position);
+
+    /**
+     * @brief 获取位置
+     * @return 相机位置
+     */
+    glm::vec3 get_position() const {return _position;}
 
 private:
     glm::vec3 _position{0.f};
